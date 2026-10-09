@@ -1,11 +1,12 @@
-"""读取来源 Excel。表头有五列，不含状态。"""
+"""读取来源 Excel。表头有六列，不含状态。"""
 
 from pathlib import Path
 
 from openpyxl import load_workbook
 
 # 与 SQLite 队列除 status 外的列同名。状态不在 Excel 中。
-EXCEL_COLUMNS = ("sku", "asin", "country", "picture", "A+introduction")
+# 站点表头是 market，与 plan.md 一致。country 用来打开网址，market 用来选择站点。
+EXCEL_COLUMNS = ("sku", "asin", "country", "market", "picture", "A+introduction")
 BOOL_COLUMNS = ("picture", "A+introduction")
 
 _TRUE = {"1", "true", "yes", "y"}
@@ -13,7 +14,7 @@ _FALSE = {"0", "false", "no", "n"}
 
 
 def read_workbook(path):
-    """读取第一个工作表，返回五列记录。
+    """读取第一个工作表，返回六列记录。
 
     picture 与 A+introduction 转为布尔值。
     不写入数据库，也不生成 status。
@@ -30,10 +31,10 @@ def read_workbook(path):
     try:
         rows = workbook.worksheets[0].iter_rows(values_only=True)
         headers = [str(value or "").strip() for value in next(rows, ())]
-        missing = [name for name in EXCEL_COLUMNS if name not in headers]
+        missing = [name for name in EXCEL_COLUMNS if _header_index(headers, name) is None]
         if missing:
             raise ValueError("缺少列：" + "、".join(missing))
-        indexes = {name: headers.index(name) for name in EXCEL_COLUMNS}
+        indexes = {name: _header_index(headers, name) for name in EXCEL_COLUMNS}
         records = []
         for row_number, row in enumerate(rows, 2):
             values = list(row)
@@ -67,3 +68,10 @@ def _as_bool(value, row_number, column):
     if text in _FALSE:
         return False
     raise ValueError(f"第 {row_number} 行 {column} 不是布尔值")
+
+
+def _header_index(headers, name):
+    """按 plan.md 的表头原名定位。站点列只认 market。"""
+    if name in headers:
+        return headers.index(name)
+    return None

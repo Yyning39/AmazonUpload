@@ -13,7 +13,7 @@ Excel → SQLite 队列 → 本地图片目录 → 本机 Chrome(CDP)
 ### 已完成
 - [x] 阶段 0 骨架（入口、配置、日志、空模块）
 - [x] Excel 读取与 SQLite 表结构
-- [x] sku、asin 拆成两列；队列字段：sku / asin / country / picture / A+introduction / status（后两列为布尔）
+- [x] sku、asin 拆成两列；队列字段：sku / asin / country / market / picture / A+introduction / status（后两列为布尔）
 - [x] 方式一导入：对话框或拖入单个 .xlsx；多个文件整批拒绝；取消不提示；占用/损坏/无权限说明原因
 - [x] 七国端口 + Seller Central 首页映射
 - [x] CDP 连接层（连接本机调试 Chrome，西班牙 9228 可列出标签并完成控制检查）
@@ -54,10 +54,11 @@ Excel → SQLite 队列 → 本地图片目录 → 本机 Chrome(CDP)
 ## 6. 业务规则
 - 关键词：SKU 存在用 SKU，否则 ASIN
 - 图片目录：`D:\aosom\data\picture\<关键词>\<国家代码>\`
-- 位置映射：MAIN 对应主图，01-07 对应页面 PT01-PT07
+- 位置映射：图片名01对应第一个框，图片02对应第二个框，依次类推，将所有图片依次顺序读入
 - 每位置只放一张
+- 缺号不前移。没有 02 时，03 仍进第三个框。
+- 文件名都是数字，不处理 MAIN.png 这种名字。
 - 扩展名：.gif .pjp .jfif .jpe .pjpeg .jpeg .jpg .png
-- 缺文件：跳过，不报错；MAIN 缺失不挡 01-07
 - 多国：按国家代码循环
 
 ## 7. 等待与异常约定
@@ -85,3 +86,4 @@ Excel → SQLite 队列 → 本地图片目录 → 本机 Chrome(CDP)
 3. 只改本段涉及文件
 4. 给最小验证方法
 5. 不碰未涉及模块
+6. 结束一轮，追加一段至progress.md

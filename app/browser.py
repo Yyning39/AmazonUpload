@@ -43,8 +43,21 @@ REUSE_PORT = 9230
 # 各国 Seller Central 图片管理页路径相同，只换域名。
 IMAGING_MANAGE_PATH = "/imaging/manage"
 # 该标记出现在图片管理页内容里，不在 Seller Central 通用顶栏上。
-# 这是在西班牙已登录页面上看到的，原项目没有这一页。
 IMAGING_MANAGE_MARKER = '[data-testid="image-manager-tab"]'
+SITE_SWITCHER_ICON_SELECTOR = ".dropdown-account-switcher-header-trailing-icon"
+SITE_SWITCHER_HEADER_SELECTOR = ".dropdown-account-switcher-header"
+SITE_SWITCHER_LIST_SELECTOR = ".dropdown-account-switcher-list"
+SITE_OPTION_SELECTOR = ".dropdown-account-switcher-list-item-indented"
+SITE_CURRENT_LABEL_SELECTOR = ".dropdown-account-switcher-header-label-regional"
+# 代码对应选项文字和旗帜 data-test。英国旗帜是 country-flag-GB。
+# 美国、加拿大不在当前展开的 OutSunny Iberica 列表里，没有看到旗帜代码，不写入。
+SITE_OPTIONS = {
+    "UK": {"label": "英国", "flag": "GB"},
+    "DE": {"label": "德国", "flag": "DE"},
+    "FR": {"label": "法国", "flag": "FR"},
+    "IT": {"label": "意大利", "flag": "IT"},
+    "ES": {"label": "西班牙", "flag": "ES"},
+}
 
 
 def country_code(country):
@@ -139,6 +152,14 @@ def _debug_port_open(port):
 
 class PageNavigationError(Exception):
     """已经连上 Chrome，但没有进入目标页。"""
+
+
+def return_to_imaging_manage(session, country, timeout=30):
+    """在已连接的页面上打开该 country 的图片管理网址。
+
+    切换站点后页面会离开图片管理页，上传前用这一步回到该国网址。
+    """
+    _navigate_and_wait(session, imaging_manage_url(country), timeout)
 
 
 def open_imaging_manage(country, timeout=30) -> PageSession:
@@ -275,3 +296,153 @@ def close_browser(browser):
     """关闭本机浏览器的调试连接，不关闭 Chrome 窗口。"""
     if browser is not None:
         browser.close()
+
+
+def switch_site(session, country, timeout=30):
+    """在当前页展开账户下拉，并点选目标站点。
+
+    不搜索，不上传，不回写。调用方传入已经连上的页面。
+    点击方式参考原项目 ChromePage.click_text 的元素 click。
+    等待间隔与本文件导航轮询相同，来源是原项目 open_upload_page，不用固定长等待当成功条件。
+    """
+    from app.imaging_upload import NeedsManual
+
+    code = country_code(country)
+    option = SITE_OPTIONS.get(code)
+    if option is None:
+        raise NeedsManual(f"当前展开的账户列表里没有 {code} 的站点选项")
+    _wait_switcher_icon(session, timeout)
+    if not session.evaluate(_click_switcher_js()):
+        raise NeedsManual("无法点击站点展开图标")
+    _wait_site_option(session, option["flag"], timeout)
+    if not session.evaluate(_click_site_option_js(option["flag"])):
+        raise NeedsManual(f"无法点击站点选项 {code}")
+    _wait_site_label(session, option["label"], timeout)
+
+
+def _wait_switcher_icon(session, timeout):
+    from app.imaging_upload import NeedsManual
+
+    started = time.monotonic()
+    deadline = started + float(timeout)
+    while True:
+        state = session.evaluate(_switcher_icon_state_js()) or {}
+        count = int(state.get("count") or 0)
+        if count > 1:
+            raise NeedsManual(f"站点展开图标不止一个：{SITE_SWITCHER_ICON_SELECTOR}")
+        if count == 1 and state.get("visible"):
+            return
+        if time.monotonic() >= deadline:
+            elapsed = time.monotonic() - started
+            ready = session.evaluate("document.readyState") or "未知"
+            raise NeedsManual(
+                f"等待站点展开图标超时：{SITE_SWITCHER_ICON_SELECTOR}，等了 {elapsed:.1f} 秒，readyState={ready}"
+            )
+        time.sleep(0.25)
+
+
+def _wait_site_option(session, flag, timeout):
+    from app.imaging_upload import NeedsManual
+
+    started = time.monotonic()
+    deadline = started + float(timeout)
+    selector = f'{SITE_OPTION_SELECTOR} [data-test="country-flag-{flag}"]'
+    while True:
+        count = int(session.evaluate(_site_option_count_js(flag)) or 0)
+        if count > 1:
+            raise NeedsManual(f"站点选项不止一个：{selector}")
+        if count == 1:
+            return
+        if time.monotonic() >= deadline:
+            elapsed = time.monotonic() - started
+            ready = session.evaluate("document.readyState") or "未知"
+            raise NeedsManual(
+                f"等待站点选项超时：{selector}，等了 {elapsed:.1f} 秒，readyState={ready}"
+            )
+        time.sleep(0.25)
+
+
+def _wait_site_label(session, label, timeout):
+    from app.imaging_upload import NeedsManual
+
+    started = time.monotonic()
+    deadline = started + float(timeout)
+    while True:
+        if session.evaluate(_site_label_js(label)):
+            return
+        if time.monotonic() >= deadline:
+            elapsed = time.monotonic() - started
+            ready = session.evaluate("document.readyState") or "未知"
+            current = session.evaluate(_site_label_text_js()) or ""
+            raise NeedsManual(
+                f"等待站点切换完成超时：{SITE_CURRENT_LABEL_SELECTOR}，等了 {elapsed:.1f} 秒，readyState={ready}，当前文字={current}"
+            )
+        time.sleep(0.25)
+
+
+def _switcher_icon_state_js():
+    selector = json.dumps(SITE_SWITCHER_ICON_SELECTOR)
+    return f"""(() => {{
+      const icons = [...document.querySelectorAll({selector})];
+      const icon = icons.length === 1 ? icons[0] : null;
+      return {{count: icons.length, visible: !!(icon && icon.offsetParent !== null)}};
+    }})()"""
+
+
+def _click_switcher_js():
+    icon_selector = json.dumps(SITE_SWITCHER_ICON_SELECTOR)
+    header_selector = json.dumps(SITE_SWITCHER_HEADER_SELECTOR)
+    return f"""(() => {{
+      const icons = [...document.querySelectorAll({icon_selector})];
+      if (icons.length !== 1) return false;
+      const header = icons[0].closest({header_selector});
+      if (!header) return false;
+      if (header.getAttribute('aria-expanded') === 'true') return true;
+      header.click();
+      return true;
+    }})()"""
+
+
+def _site_option_count_js(flag):
+    list_selector = json.dumps(SITE_SWITCHER_LIST_SELECTOR)
+    option_selector = json.dumps(SITE_OPTION_SELECTOR)
+    flag_selector = json.dumps(f'[data-test="country-flag-{flag}"]')
+    return f"""(() => {{
+      const list = document.querySelector({list_selector});
+      if (!list) return 0;
+      return [...list.querySelectorAll({option_selector})].filter(item => item.querySelector({flag_selector})).length;
+    }})()"""
+
+
+def _click_site_option_js(flag):
+    list_selector = json.dumps(SITE_SWITCHER_LIST_SELECTOR)
+    option_selector = json.dumps(SITE_OPTION_SELECTOR)
+    flag_selector = json.dumps(f'[data-test="country-flag-{flag}"]')
+    return f"""(() => {{
+      const list = document.querySelector({list_selector});
+      if (!list) return false;
+      const items = [...list.querySelectorAll({option_selector})].filter(item => item.querySelector({flag_selector}));
+      if (items.length !== 1) return false;
+      items[0].scrollIntoView({{block:'center'}});
+      items[0].click();
+      return true;
+    }})()"""
+
+
+def _site_label_js(label):
+    selector = json.dumps(SITE_CURRENT_LABEL_SELECTOR)
+    wanted = json.dumps(label)
+    return f"""(() => {{
+      const labels = [...document.querySelectorAll({selector})];
+      if (labels.length !== 1) return false;
+      const ready = document.readyState === 'interactive' || document.readyState === 'complete';
+      return ready && (labels[0].innerText || '').trim() === {wanted};
+    }})()"""
+
+
+def _site_label_text_js():
+    selector = json.dumps(SITE_CURRENT_LABEL_SELECTOR)
+    return f"""(() => {{
+      const labels = [...document.querySelectorAll({selector})];
+      return labels.length === 1 ? (labels[0].innerText || '').trim() : '';
+    }})()"""

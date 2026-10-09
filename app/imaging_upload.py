@@ -5,6 +5,7 @@
 
 import json
 import time
+from datetime import datetime
 from pathlib import Path
 
 from app.browser import country_code
@@ -13,6 +14,10 @@ from app.cdp import BrowserConnectionError
 
 class NeedsManual(Exception):
     """页面元素找不到，或确认条件还没补充。"""
+
+
+class UploadNotConfirmed(NeedsManual):
+    """新图已经交给这一格，但成功标志没有出现。"""
 
 
 # 下面几项是在已登录的西班牙图片管理页上看到的。
@@ -26,21 +31,18 @@ SLOT_BOX_SELECTOR = '[data-testid="product-image-container"]'
 VARIANT_SELECTOR = '[data-testid="variant-dropdown"], [data-testid="variant-label"]'
 VARIANT_LABEL_SELECTOR = '[data-testid="variant-label"]'
 VARIANT_DROPDOWN_SELECTOR = '[data-testid="variant-dropdown"]'
-# 等待图标的 class 带会变的后缀，只匹配 status-pending 这一段。
-PENDING_ICON_SELECTOR = '[class*="status-pending"]'
+# 页面上刚传完时是临时图。随后换成亚马逊图片地址，testid 变为 url-image。两种都算上传完成。
 NEWLY_UPLOADED_IMAGE_SELECTOR = '[data-testid="newly-uploaded-image"]'
+URL_IMAGE_SELECTOR = '[data-testid="url-image"]'
+UPLOADED_IMAGE_SELECTOR = f"{NEWLY_UPLOADED_IMAGE_SELECTOR}, {URL_IMAGE_SELECTOR}"
+DASHED_SLOT_SELECTOR = '[data-testid="image-slot-dashed"]'
+PENDING_SELECTOR = '[class*="status-pending"]'
+# 有图格子里的垃圾桶。data-capture 是 variant-delete-button，无文字。
+DELETE_ICON_SELECTOR = '[data-testid="delete-icon"]'
+# 点垃圾桶后出现的确认框。框内「删除」按钮没有自己的 data-testid。
+DELETE_CONFIRM_MODAL_SELECTOR = '[data-testid="delete-confirmation-modal"]'
+DELETE_CONFIRM_BUTTON_TEXT = "删除"
 
-# 目录文件名 → 页面位置名。01 对应 PT01，依次到 07。
-SLOT_MAP = (
-    ("MAIN", "MAIN"),
-    ("01", "PT01"),
-    ("02", "PT02"),
-    ("03", "PT03"),
-    ("04", "PT04"),
-    ("05", "PT05"),
-    ("06", "PT06"),
-    ("07", "PT07"),
-)
 IMAGE_EXTENSIONS = {".gif", ".pjp", ".jfif", ".jpe", ".pjpeg", ".jpeg", ".jpg", ".png"}
 
 
@@ -87,12 +89,12 @@ def _element_state_js(selector):
     )
 
 
-def upload_images(session, keyword, country, picture_root, timeout=30):
+def upload_images(session, keyword, country, picture_root, timeout=30, log_path=None, log_context=None):
     """搜索关键词，并把该国目录里的图片逐位上传。
 
     picture_root 是图片根目录。实际目录为
     picture_root/<关键词>/<国家代码>/。
-    返回 MAIN、01…07 每个位置的结果。
+    返回每张数字图片的结果。01 对应国家模块里的第一个框。
     """
     code = country_code(country)
     text = str(keyword or "").strip()
@@ -101,7 +103,7 @@ def upload_images(session, keyword, country, picture_root, timeout=30):
     directory = Path(picture_root) / text / code
     _search(session, text, timeout)
     _reveal_country(session, code, timeout)
-    return _upload_slots(session, code, directory, timeout)
+    return _upload_slots(session, code, directory, timeout, log_path, log_context)
 
 
 def _search(session, keyword, timeout):
@@ -151,33 +153,80 @@ def _reveal_country(session, country, timeout):
     )
 
 
-def _upload_slots(session, country, directory, timeout):
+def _upload_slots(session, country, directory, timeout, log_path=None, log_context=None):
+    """只处理文件夹里有的数字图片。01 是第一个框，缺号不前移。
+
+    没有对应文件的格子保持原样。有文件时，这一格已有图就先删再传，没有图就直接传。
+    错误留在返回列表里，不写 Excel。
+    """
+    images = _numbered_images(directory)
+    slots = session.evaluate(_ordered_slots_js(_country_selector(country))) or []
+    if not isinstance(slots, list) or not slots or any(not str(name).strip() for name in slots):
+        raise NeedsManual("国家模块的格子顺序不完整")
     results = []
-    stopped = ""
-    for file_stem, page_slot in SLOT_MAP:
-        if stopped:
-            results.append(_result(file_stem, page_slot, "失败", stopped))
-            continue
-        if file_stem == "MAIN":
-            results.append(_result(file_stem, page_slot, "跳过", "暂不上传"))
-            continue
-        try:
-            path = find_slot_image(directory, file_stem)
-        except NeedsManual as exc:
-            results.append(_result(file_stem, page_slot, "失败", str(exc)))
-            stopped = "上一位未确认成功，已停止"
-            continue
-        if path is None:
-            results.append(_result(file_stem, page_slot, "跳过", "无文件"))
-            continue
-        try:
-            _upload_one(session, country, page_slot, path, timeout)
-        except (NeedsManual, BrowserConnectionError) as exc:
-            results.append(_result(file_stem, page_slot, "失败", str(exc), path))
-            stopped = "上一位未确认成功，已停止"
-            continue
-        results.append(_result(file_stem, page_slot, "成功", "", path))
+    previous = _box_states(session, country)
+    for number, path in images:
+        file_stem = f"{number:02d}"
+        page_slot = slots[number - 1] if 1 <= number <= len(slots) else ""
+        if not page_slot:
+            item = _result(file_stem, "", "失败", f"{file_stem}位置图片待审核", path)
+        else:
+            item = _upload_or_record(session, country, page_slot, path, file_stem, timeout)
+        current = _box_states(session, country)
+        if log_path:
+            _append_picture_log(log_path, log_context, item, previous, current)
+        previous = current
+        results.append(item)
     return results
+
+
+def _upload_or_record(session, country, page_slot, path, file_stem, timeout):
+    """有图先删再传。删不掉就不传。错误文字留给后面统一回写。"""
+    if not _clear_existing_image(session, country, page_slot, timeout):
+        return _result(file_stem, page_slot, "失败", f"{page_slot}位置原有图片无法删除，未上传新图", path)
+    try:
+        _upload_one(session, country, page_slot, path, timeout)
+    except UploadNotConfirmed:
+        return _result(file_stem, page_slot, "失败", f"{page_slot}位置上传失败", path)
+    except (NeedsManual, BrowserConnectionError):
+        return _result(file_stem, page_slot, "失败", f"{page_slot}位置图片待审核", path)
+    return _result(file_stem, page_slot, "成功", "", path)
+
+
+def _clear_existing_image(session, country, page_slot, timeout):
+    """这一格没有图时直接返回。有图则点这一格的删除按钮，等确认框，再点框里的删除。"""
+    selector = _country_selector(country)
+    state = session.evaluate(_slot_image_state_js(selector, page_slot)) or {}
+    if not _already_uploaded(state):
+        return True
+    count = int(session.evaluate(_delete_count_js(selector, page_slot)) or 0)
+    if count != 1:
+        return False
+    if not session.evaluate(_click_delete_js(selector, page_slot)):
+        return False
+    try:
+        _wait_until(
+            session,
+            _delete_confirm_ready_js(page_slot),
+            timeout,
+            f"{page_slot} 删除确认框未出现",
+            DELETE_CONFIRM_MODAL_SELECTOR,
+        )
+    except NeedsManual:
+        return False
+    if not session.evaluate(_click_delete_confirm_js(page_slot)):
+        return False
+    try:
+        _wait_until(
+            session,
+            _delete_finished_js(selector, page_slot),
+            timeout,
+            f"{page_slot} 删除未确认",
+            DELETE_CONFIRM_MODAL_SELECTOR,
+        )
+    except NeedsManual:
+        return False
+    return True
 
 
 def _upload_one(session, country, page_slot, path, timeout):
@@ -189,17 +238,21 @@ def _upload_one(session, country, page_slot, path, timeout):
     if count != 1:
         raise NeedsManual(f"{page_slot} 的文件框不止一个")
     session.evaluate(_scroll_slot_js(selector, page_slot))
+    before = session.evaluate(_slot_image_state_js(selector, page_slot)) or {}
     arm_error = session.evaluate(_arm_upload_handler_js(selector, page_slot))
     if arm_error:
         raise NeedsManual(f"{page_slot} {arm_error}")
     session.set_file_input_files(_slot_input_js(selector, page_slot), str(path.resolve()))
-    _wait_until(
-        session,
-        _slot_success_js(selector, page_slot),
-        timeout,
-        f"{page_slot} 上传未确认成功",
-        NEWLY_UPLOADED_IMAGE_SELECTOR,
-    )
+    try:
+        _wait_until(
+            session,
+            _slot_success_js(selector, page_slot, before.get("src") or ""),
+            timeout,
+            f"{page_slot} 上传未确认成功",
+            UPLOADED_IMAGE_SELECTOR,
+        )
+    except NeedsManual as exc:
+        raise UploadNotConfirmed(str(exc)) from exc
 
 
 def _wait_for_slot(session, section_selector, page_slot, timeout):
@@ -221,22 +274,26 @@ def _wait_for_slot(session, section_selector, page_slot, timeout):
         time.sleep(0.25)
 
 
-def find_slot_image(directory, file_stem):
-    """在目录中找该位置的唯一图片。没有则返回 None。"""
+def _numbered_images(directory):
+    """按文件名数字排序。01 是第 1 张。同一序号多张则报错。非数字文件名不读。"""
     folder = Path(directory)
     if not folder.is_dir():
-        return None
-    wanted = str(file_stem).upper()
-    matches = [
-        path for path in folder.iterdir()
-        if path.is_file() and path.stem.upper() == wanted and path.suffix.lower() in IMAGE_EXTENSIONS
-    ]
-    if not matches:
-        return None
-    if len(matches) > 1:
-        names = "、".join(path.name for path in matches)
-        raise NeedsManual(f"{file_stem} 有多张图片：{names}")
-    return matches[0]
+        return []
+    grouped = {}
+    for path in folder.iterdir():
+        if not path.is_file() or path.suffix.lower() not in IMAGE_EXTENSIONS:
+            continue
+        if not path.stem.isdigit():
+            continue
+        grouped.setdefault(int(path.stem), []).append(path)
+    images = []
+    for number in sorted(grouped):
+        matches = grouped[number]
+        if len(matches) > 1:
+            names = "、".join(path.name for path in matches)
+            raise NeedsManual(f"{number:02d} 有多张图片：{names}")
+        images.append((number, matches[0]))
+    return images
 
 
 def _wait_until(session, expression, timeout, failure, selector):
@@ -262,6 +319,91 @@ def _result(file_stem, page_slot, status, reason, path=None):
     if path is not None:
         item["file"] = str(path)
     return item
+
+
+def _box_states(session, country):
+    """经当前调试连接读取国家模块里每个框的可见状态。"""
+    states = session.evaluate(_all_boxes_js(_country_selector(country))) or []
+    return states if isinstance(states, list) else []
+
+
+def _append_picture_log(path, context, item, before, after):
+    """把这一张图片处理完之后，每个框相对上传前的变化追加到 picture_log.md。"""
+    context = context or {}
+    lines = [
+        f"【记录时间】：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"监听端口：{context.get('port', '')}",
+        f"关键词：{context.get('keyword', '')}",
+        f"country：{context.get('country', '')}",
+        f"market：{context.get('market', '')}",
+        f"图片：{Path(item.get('file') or '').name} → 第 {item.get('slot', '')} 张，页面位置 {item.get('page_slot') or '无'}",
+        f"结果：{item.get('status', '')} {item.get('reason', '')}".rstrip(),
+        "各框变化：",
+    ]
+    count = max(len(before), len(after))
+    if count == 0:
+        lines.append("- 国家模块里没有读到格子")
+    for index in range(count):
+        old = before[index] if index < len(before) else None
+        new = after[index] if index < len(after) else None
+        lines.append(f"- {_box_change_line(index + 1, old, new)}")
+    lines.append("")
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("a", encoding="utf-8") as handle:
+        handle.write("\n".join(lines))
+
+
+def _box_change_line(index, before, after):
+    if before is None and after is not None:
+        return f"{index} {_box_text(after)}：新增"
+    if after is None and before is not None:
+        return f"{index} {_box_text(before)}：消失"
+    if _same_box(before, after):
+        return f"{index} {_box_text(after)}：无变化"
+    return f"{index} {_box_text(before)} → {_box_text(after)}"
+
+
+def _same_box(before, after):
+    keys = ("name", "marker", "image", "src", "dashed", "pending")
+    return all((before or {}).get(key) == (after or {}).get(key) for key in keys)
+
+
+def _box_text(state):
+    state = state or {}
+    name = state.get("name") or "无位置名"
+    marker = state.get("marker") or "无标记"
+    image = state.get("image") or "无图"
+    src = state.get("src") or "无地址"
+    dashed = "虚线" if state.get("dashed") else "实位"
+    pending = "审核中" if state.get("pending") else "无审核标记"
+    return f"{name} / {marker} / {image} / {dashed} / {pending} / {src}"
+
+
+def _all_boxes_js(section_selector):
+    """读取国家模块每个框：位置名、标记、图片、虚线空位、审核标记。"""
+    section = json.dumps(section_selector)
+    box = json.dumps(SLOT_BOX_SELECTOR)
+    variant = json.dumps(VARIANT_SELECTOR)
+    dashed = json.dumps(DASHED_SLOT_SELECTOR)
+    pending = json.dumps(PENDING_SELECTOR)
+    return f"""(() => {{
+      const section = document.querySelector({section});
+      if (!section) return [];
+      return [...section.querySelectorAll({box})].map(item => {{
+        const markers = [...item.querySelectorAll({variant})];
+        const marker = markers.length === 1 ? markers[0] : null;
+        const img = item.querySelector('img');
+        return {{
+          name: marker ? (marker.innerText || '').trim().split(/\\s+/)[0] : '',
+          marker: marker ? (marker.getAttribute('data-testid') || '') : '',
+          image: img ? (img.getAttribute('data-testid') || '') : '',
+          src: img ? (img.currentSrc || img.src || '') : '',
+          dashed: !!item.querySelector({dashed}),
+          pending: !!item.querySelector({pending})
+        }};
+      }});
+    }})()"""
 
 
 def _country_selector(country):
@@ -385,15 +527,165 @@ def _search_state_js(keyword):
     }})()"""
 
 
-def _slot_success_js(section_selector, page_slot):
-    """上传后的格子：新图片、固定位置名、等待图标同时出现。"""
+def _ordered_slots_js(section_selector):
+    """国家模块里格子的位置名，顺序与页面一致。某一格没有唯一位置名时该项为空。"""
+    section = json.dumps(section_selector)
+    box = json.dumps(SLOT_BOX_SELECTOR)
+    variant = json.dumps(VARIANT_SELECTOR)
+    return f"""(() => {{
+      const section = document.querySelector({section});
+      if (!section) return [];
+      return [...section.querySelectorAll({box})].map(item => {{
+        const markers = [...item.querySelectorAll({variant})];
+        if (markers.length !== 1) return '';
+        return (markers[0].innerText || '').trim().split(/\\s+/)[0];
+      }});
+    }})()"""
+
+
+def _slot_image_state_js(section_selector, page_slot):
+    """这一格里现有图片的 testid 和地址。没有图片时两项都是空字符串。"""
+    section = json.dumps(section_selector)
+    box = json.dumps(SLOT_BOX_SELECTOR)
+    variant = json.dumps(VARIANT_SELECTOR)
+    slot = json.dumps(page_slot)
+    return f"""(() => {{
+      const section = document.querySelector({section});
+      if (!section) return {{testid:'', src:''}};
+      const boxes = [...section.querySelectorAll({box})].filter(item => {{
+        const markers = [...item.querySelectorAll({variant})];
+        if (markers.length !== 1) return false;
+        const text = (markers[0].innerText || '').trim().split(/\\s+/)[0];
+        return text === {slot};
+      }});
+      if (boxes.length !== 1) return {{testid:'', src:''}};
+      const img = boxes[0].querySelector('img');
+      if (!img) return {{testid:'', src:''}};
+      return {{testid: img.getAttribute('data-testid') || '', src: img.currentSrc || img.src || ''}};
+    }})()"""
+
+
+def _already_uploaded(state):
+    """页面上这一格已经显示上传后的图片。"""
+    testid = str((state or {}).get("testid") or "")
+    src = str((state or {}).get("src") or "").strip()
+    return bool(src) and testid in {"newly-uploaded-image", "url-image"}
+
+
+def _matched_boxes_js(section_selector, page_slot):
+    """国家模块里位置名恰好匹配的格子。整页其他国家的格子不算。"""
+    section = json.dumps(section_selector)
+    box = json.dumps(SLOT_BOX_SELECTOR)
+    variant = json.dumps(VARIANT_SELECTOR)
+    slot = json.dumps(page_slot)
+    return f"""(() => {{
+      const section = document.querySelector({section});
+      if (!section) return [];
+      return [...section.querySelectorAll({box})].filter(item => {{
+        const markers = [...item.querySelectorAll({variant})];
+        if (markers.length !== 1) return false;
+        const text = (markers[0].innerText || '').trim().split(/\\s+/)[0];
+        return text === {slot};
+      }});
+    }})()"""
+
+
+def _delete_count_js(section_selector, page_slot):
+    icon = json.dumps(DELETE_ICON_SELECTOR)
+    return f"""(() => {{
+      const boxes = {_matched_boxes_js(section_selector, page_slot)};
+      if (boxes.length !== 1) return 0;
+      return boxes[0].querySelectorAll({icon}).length;
+    }})()"""
+
+
+def _click_delete_js(section_selector, page_slot):
+    """只点击这一格里那一个删除按钮。"""
+    icon = json.dumps(DELETE_ICON_SELECTOR)
+    return f"""(() => {{
+      const boxes = {_matched_boxes_js(section_selector, page_slot)};
+      if (boxes.length !== 1) return false;
+      const icons = [...boxes[0].querySelectorAll({icon})];
+      if (icons.length !== 1) return false;
+      icons[0].scrollIntoView({{block:'center'}});
+      icons[0].click();
+      return true;
+    }})()"""
+
+
+def _visible_confirm_modals_js():
+    """当前可见的删除确认框。隐藏的不算。"""
+    modal = json.dumps(DELETE_CONFIRM_MODAL_SELECTOR)
+    return f"""(() => {{
+      return [...document.querySelectorAll({modal})].filter(el => {{
+        const style = getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+      }});
+    }})()"""
+
+
+def _delete_confirm_ready_js(page_slot):
+    """恰好一个确认框，并且文字里有这一格的位置名。"""
+    slot = json.dumps(page_slot)
+    return f"""(() => {{
+      const modals = {_visible_confirm_modals_js()};
+      if (modals.length !== 1) return false;
+      return (modals[0].innerText || '').includes({slot});
+    }})()"""
+
+
+def _click_delete_confirm_js(page_slot):
+    """只点确认框里文字为「删除」的那一个按钮。"""
+    slot = json.dumps(page_slot)
+    label = json.dumps(DELETE_CONFIRM_BUTTON_TEXT)
+    return f"""(() => {{
+      const modals = {_visible_confirm_modals_js()};
+      if (modals.length !== 1) return false;
+      if (!(modals[0].innerText || '').includes({slot})) return false;
+      const buttons = [...modals[0].querySelectorAll('button')].filter(el => (el.innerText || '').trim() === {label});
+      if (buttons.length !== 1) return false;
+      buttons[0].click();
+      return true;
+    }})()"""
+
+
+def _delete_finished_js(section_selector, page_slot):
+    """确认框已关上，并且这一格的图已经没有。"""
+    return f"({_slot_cleared_js(section_selector, page_slot)}) && ({_visible_confirm_modals_js()}).length === 0"
+
+
+def _slot_cleared_js(section_selector, page_slot):
+    """这一格不再有上传后的图片。临时图和亚马逊图片地址都算还没删掉。"""
+    uploaded = json.dumps(UPLOADED_IMAGE_SELECTOR)
+    fresh = json.dumps("newly-uploaded-image")
+    hosted = json.dumps("url-image")
+    return f"""(() => {{
+      const boxes = {_matched_boxes_js(section_selector, page_slot)};
+      if (boxes.length !== 1) return false;
+      const img = boxes[0].querySelector({uploaded});
+      if (!img) return true;
+      const src = img.currentSrc || img.src || '';
+      const testid = img.getAttribute('data-testid') || '';
+      return !(src && (testid === {fresh} || testid === {hosted}));
+    }})()"""
+
+
+def _slot_success_js(section_selector, page_slot, previous_src):
+    """这一格出现上传后的图片即完成。
+
+    刚传完是 newly-uploaded-image，页面上这时已经显示成功。
+    随后换成 url-image 的亚马逊图片地址，审核中和审核完都算完成。
+    亚马逊地址必须和上传前不同，避免把原来的图当成这次成功。
+    """
     section = json.dumps(section_selector)
     box = json.dumps(SLOT_BOX_SELECTOR)
     label = json.dumps(VARIANT_LABEL_SELECTOR)
     menu = json.dumps(VARIANT_DROPDOWN_SELECTOR)
-    pending = json.dumps(PENDING_ICON_SELECTOR)
-    image = json.dumps(NEWLY_UPLOADED_IMAGE_SELECTOR)
+    fresh = json.dumps(NEWLY_UPLOADED_IMAGE_SELECTOR)
+    hosted = json.dumps(URL_IMAGE_SELECTOR)
     slot = json.dumps(page_slot)
+    previous = json.dumps(previous_src or "")
     return f"""(() => {{
       const section = document.querySelector({section});
       if (!section) return false;
@@ -404,7 +696,10 @@ def _slot_success_js(section_selector, page_slot):
       }});
       if (boxes.length !== 1) return false;
       const item = boxes[0];
-      return !!item.querySelector({image}) && !!item.querySelector({pending});
+      if (item.querySelector({fresh})) return true;
+      const img = item.querySelector({hosted});
+      const src = img ? (img.currentSrc || img.src || '') : '';
+      return !!src && src !== {previous};
     }})()"""
 
 

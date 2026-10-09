@@ -1,10 +1,12 @@
-"""程序入口。当前只打开导入窗口。"""
+"""程序入口。打开选择 Excel 的窗口，选中后读取、打开网页并上传。"""
 
 from pathlib import Path
 
 from app.config_loader import load_config
-from app.import_ui import ImportWindow
+from app.file_pick import explain_read_failure
+from app.import_ui import ImportWindow, _report_text
 from app.logging_setup import setup_logging
+from app.pipeline import run
 
 ROOT = Path(__file__).resolve().parent
 
@@ -19,10 +21,19 @@ def database_path(config):
 
 
 def main():
-    """加载配置并打开选择/拖入窗口。不进入上传或回写。"""
+    """打开选择窗口。表格读入后窗口关闭，再打开网页并上传。"""
     config = load_config(ROOT / "config" / "settings.json")
     setup_logging(config.get("log_dir"), config.get("log_level"))
-    ImportWindow(database_path(config)).run()
+    window = ImportWindow(database_path(config), ROOT / "picture_log.md")
+    window.run()
+    if window.selected_path is None:
+        return
+    try:
+        report = run(window.selected_path, window.database_path, window.log_path)
+    except Exception as exc:
+        print(explain_read_failure(exc, window.selected_path), flush=True)
+        return
+    print(_report_text(report), flush=True)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""SQLite 队列。六列业务字段：sku、asin、country、picture、A+introduction、status。"""
+"""SQLite 队列。字段：sku、asin、country、market、picture、A+introduction、status。"""
 
 from pathlib import Path
 import sqlite3
@@ -28,32 +28,37 @@ def open_store(database_path):
             sku TEXT NOT NULL,
             asin TEXT NOT NULL,
             country TEXT NOT NULL,
+            market TEXT NOT NULL,
             picture INTEGER NOT NULL CHECK (picture IN (0, 1)),
             "A+introduction" INTEGER NOT NULL CHECK ("A+introduction" IN (0, 1)),
             status TEXT NOT NULL
         )
         """
     )
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(queue)")}
+    if "market" not in columns:
+        connection.execute("ALTER TABLE queue ADD COLUMN market TEXT NOT NULL DEFAULT ''")
     connection.commit()
     return connection
 
 
 def enqueue(store, rows):
-    """把 Excel 的五列写入队列，并补上 status。
+    """把 Excel 的列写入队列，并补上 status。
 
     不做去重。同一 sku 和 asin 再次导入会新增一行。
     picture 与 A+introduction 以 0/1 保存。
     """
     store.executemany(
         """
-        INSERT INTO queue (sku, asin, country, picture, "A+introduction", status)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO queue (sku, asin, country, market, picture, "A+introduction", status)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
                 row["sku"],
                 row["asin"],
                 row["country"],
+                row["market"],
                 int(row["picture"]),
                 int(row["A+introduction"]),
                 INITIAL_STATUS,
@@ -67,7 +72,7 @@ def enqueue(store, rows):
 def list_queue(store):
     """按 id 返回全部队列记录。两个布尔列还原为 True/False。"""
     records = store.execute(
-        'SELECT id, sku, asin, country, picture, "A+introduction", status FROM queue ORDER BY id'
+        'SELECT id, sku, asin, country, market, picture, "A+introduction", status FROM queue ORDER BY id'
     )
     items = []
     for record in records:

@@ -9,14 +9,17 @@ try:
 except ImportError:
     DND_FILES, TkinterDnD = None, None
 
-from app.file_pick import choose_dropped_file, explain_read_failure, import_workbook
+from app.excel_io import read_workbook
+from app.file_pick import choose_dropped_file, explain_read_failure
 
 
 class ImportWindow:
-    """只负责选文件并导入队列。"""
+    """选一个 Excel。数据读入后关闭窗口，上传由入口继续。"""
 
-    def __init__(self, database_path):
+    def __init__(self, database_path, log_path):
         self.database_path = Path(database_path)
+        self.log_path = Path(log_path)
+        self.selected_path = None
         self.root = TkinterDnD.Tk() if TkinterDnD is not None else tk.Tk()
         self.root.title("导入 Excel")
         self.root.geometry("640x360")
@@ -27,10 +30,10 @@ class ImportWindow:
     def _build(self):
         frame = ttk.Frame(self.root, padding=16)
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text="选择或拖入一个 .xlsx 文件").pack(anchor="w")
+        ttk.Label(frame, text="选择或拖入一个 .xlsx 文件，随后读取、打开网页并上传").pack(anchor="w")
         ttk.Label(
             frame,
-            text="表头需要：sku、asin、country、picture、A+introduction",
+            text="表头需要：sku、asin、country、market、picture、A+introduction",
         ).pack(anchor="w", pady=(4, 12))
         self.drop_label = tk.Label(
             frame,
@@ -42,7 +45,7 @@ class ImportWindow:
         )
         self.drop_label.pack(fill="both", expand=True)
         ttk.Button(frame, text="选择文件", command=self.choose_file).pack(anchor="w", pady=12)
-        self.status = ttk.Label(frame, text=f"队列数据库：{self.database_path}")
+        self.status = ttk.Label(frame, text=f"队列数据库：{self.database_path}", wraplength=580, justify="left")
         self.status.pack(anchor="w")
         if TkinterDnD is None:
             self.drop_label.configure(text="当前环境不能拖入文件，请使用「选择文件」。")
@@ -79,15 +82,36 @@ class ImportWindow:
         self.import_selected(path)
 
     def import_selected(self, path):
+        self.status.configure(text=f"正在读取…\n{path}")
+        self.root.update_idletasks()
         try:
-            count = import_workbook(path, self.database_path)
+            rows = read_workbook(path)
         except Exception as exc:
             messagebox.showerror("无法导入", explain_read_failure(exc, path), parent=self.root)
+            self.status.configure(text=f"未完成。\n{path}")
             return
-        if count == 0:
+        if not rows:
             messagebox.showwarning("无法导入", "表格里没有数据行。", parent=self.root)
+            self.status.configure(text=f"表格里没有数据行。\n{path}")
             return
-        self.status.configure(text=f"已导入 {count} 条，状态为待处理。\n{path}")
+        self.selected_path = Path(path)
+        self.root.destroy()
 
     def run(self):
         self.root.mainloop()
+
+
+def _report_text(report):
+    """把每一行的国家和上传结果写成控制台文字。"""
+    lines = []
+    for item in report["results"]:
+        line = f"{item['sku']}  {item['country']} / {item['market']}  {item['status']}"
+        if item.get("reason"):
+            line += "：" + item["reason"]
+        for slot in item.get("slots") or []:
+            slot_line = f"{slot['slot']} → {slot.get('page_slot') or '无'}  {slot['status']}"
+            if slot.get("reason"):
+                slot_line += "：" + slot["reason"]
+            line += "\n" + slot_line
+        lines.append(line)
+    return "\n".join(lines)
