@@ -1,0 +1,30 @@
+{
+  "data_dir": "",
+  "database_file": "data/queue.sqlite3",
+  "prepared_dir": "",
+  "log_dir": "logs",
+  "log_level": "INFO",
+  "source_excel": "",
+  "browser": {
+    "host": "127.0.0.1",
+    "reuse_port": 9230,
+    "country_ports": {
+      "US": 9222,
+      "CA": 9223,
+      "UK": 9224,
+      "DE": 9225,
+      "FR": 9226,
+      "IT": 9227,
+      "ES": 9228
+    },
+    "home_urls": {
+      "US": "https://sellercentral.amazon.com",
+      "CA": "https://sellercentral.amazon.ca",
+      "UK": "https://sellercentral.amazon.co.uk",
+      "DE": "https://sellercentral.amazon.de",
+      "FR": "https://sellercentral.amazon.fr",
+      "IT": "https://sellercentral.amazon.it",
+      "ES": "https://sellercentral.amazon.es"
+    }
+  }
+}
