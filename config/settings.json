@@ -7,6 +7,7 @@
   "source_excel": "",
   "browser": {
     "host": "127.0.0.1",
+    "startup_country": "ES",
     "reuse_port": 9230,
     "country_ports": {
       "US": 9222,

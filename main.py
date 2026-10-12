@@ -1,7 +1,8 @@
-"""程序入口。打开选择 Excel 的窗口，选中后读取、打开网页并上传。"""
+"""程序入口。先打开卖家后台，再选择 Excel，选中后读取并上传。"""
 
 from pathlib import Path
 
+from app.browser import launch_chrome
 from app.config_loader import load_config
 from app.file_pick import explain_read_failure
 from app.import_ui import ImportWindow, _report_text
@@ -21,9 +22,18 @@ def database_path(config):
 
 
 def main():
-    """打开选择窗口。表格读入后窗口关闭，再打开网页并上传。"""
+    """先拉起独立 Chrome 打开卖家后台，再打开选择窗口。选中后读取并上传。"""
     config = load_config(ROOT / "config" / "settings.json")
     setup_logging(config.get("log_dir"), config.get("log_level"))
+    country = str((config.get("browser") or {}).get("startup_country") or "").strip()
+    if not country:
+        print("配置里没有 browser.startup_country，无法先打开网页。", flush=True)
+        return
+    try:
+        launch_chrome(country)
+    except Exception as exc:
+        print(str(exc), flush=True)
+        return
     window = ImportWindow(database_path(config), ROOT / "picture_log.md")
     window.run()
     if window.selected_path is None:

@@ -43,7 +43,7 @@ Excel → SQLite 队列 → 本地图片目录 → 本机 Chrome(CDP)
 | imaging_upload.py | 搜索、下滑、上传 | 不写 Excel / 回写 |
 | excel_io.py | 读 Excel、得到关键词 | 不碰浏览器 |
 | storage.py | SQLite 队列 | 不碰浏览器 |
-
+| aplus_upload.py | A+ 上传 | 不复用 imaging_upload 的业务规则 |
 ## 5. 技术约束
 - 语言：Python
 - 浏览器控制：只用 CDP，不用 Selenium / Playwright
@@ -53,7 +53,7 @@ Excel → SQLite 队列 → 本地图片目录 → 本机 Chrome(CDP)
 
 ## 6. 业务规则
 - 关键词：SKU 存在用 SKU，否则 ASIN
-- 图片目录：`D:\aosom\data\picture\<关键词>\<国家代码>\`
+- 图片目录：`D:\aosom\data\picture\<国家>\<sku>\<站点>\` 
 - 位置映射：图片名01对应第一个框，图片02对应第二个框，依次类推，将所有图片依次顺序读入
 - 每位置只放一张
 - 缺号不前移。没有 02 时，03 仍进第三个框。

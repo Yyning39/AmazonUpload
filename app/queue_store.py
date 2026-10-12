@@ -1,4 +1,4 @@
-"""SQLite 队列。字段：sku、asin、country、market、picture、A+introduction、status。"""
+"""SQLite 队列。字段：sku、asin、country、market、picture、A+introduction、src、status。"""
 
 from pathlib import Path
 import sqlite3
@@ -31,6 +31,7 @@ def open_store(database_path):
             market TEXT NOT NULL,
             picture INTEGER NOT NULL CHECK (picture IN (0, 1)),
             "A+introduction" INTEGER NOT NULL CHECK ("A+introduction" IN (0, 1)),
+            src TEXT NOT NULL DEFAULT '',
             status TEXT NOT NULL
         )
         """
@@ -38,6 +39,8 @@ def open_store(database_path):
     columns = {row[1] for row in connection.execute("PRAGMA table_info(queue)")}
     if "market" not in columns:
         connection.execute("ALTER TABLE queue ADD COLUMN market TEXT NOT NULL DEFAULT ''")
+    if "src" not in columns:
+        connection.execute("ALTER TABLE queue ADD COLUMN src TEXT NOT NULL DEFAULT ''")
     connection.commit()
     return connection
 
@@ -50,8 +53,8 @@ def enqueue(store, rows):
     """
     store.executemany(
         """
-        INSERT INTO queue (sku, asin, country, market, picture, "A+introduction", status)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO queue (sku, asin, country, market, picture, "A+introduction", src, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -61,6 +64,7 @@ def enqueue(store, rows):
                 row["market"],
                 int(row["picture"]),
                 int(row["A+introduction"]),
+                row["src"],
                 INITIAL_STATUS,
             )
             for row in rows
@@ -72,7 +76,7 @@ def enqueue(store, rows):
 def list_queue(store):
     """按 id 返回全部队列记录。两个布尔列还原为 True/False。"""
     records = store.execute(
-        'SELECT id, sku, asin, country, market, picture, "A+introduction", status FROM queue ORDER BY id'
+        'SELECT id, sku, asin, country, market, picture, "A+introduction", src, status FROM queue ORDER BY id'
     )
     items = []
     for record in records:

@@ -1,4 +1,4 @@
-"""读取来源 Excel。表头有六列，不含状态。"""
+"""读取来源 Excel。表头有七列，不含状态。"""
 
 from pathlib import Path
 
@@ -6,7 +6,7 @@ from openpyxl import load_workbook
 
 # 与 SQLite 队列除 status 外的列同名。状态不在 Excel 中。
 # 站点表头是 market，与 plan.md 一致。country 用来打开网址，market 用来选择站点。
-EXCEL_COLUMNS = ("sku", "asin", "country", "market", "picture", "A+introduction")
+EXCEL_COLUMNS = ("sku", "asin", "country", "market", "picture", "A+introduction", "src")
 BOOL_COLUMNS = ("picture", "A+introduction")
 
 _TRUE = {"1", "true", "yes", "y"}
@@ -14,10 +14,10 @@ _FALSE = {"0", "false", "no", "n"}
 
 
 def read_workbook(path):
-    """读取第一个工作表，返回六列记录。
+    """读取第一个工作表，返回七列记录。
 
-    picture 与 A+introduction 转为布尔值。
-    不写入数据库，也不生成 status。
+    picture 与 A+introduction 转为布尔值。src 保留图片地址原文。
+    picture 为真时 src 不能为空。不写入数据库，也不生成 status。
     """
     path = Path(path or "")
     if not str(path) or path == Path("."):
@@ -47,9 +47,11 @@ def read_workbook(path):
                     record[name] = _as_bool(cell, row_number, name)
                 else:
                     text = str(cell or "").strip()
-                    if not text:
+                    if name != "src" and not text:
                         raise ValueError(f"第 {row_number} 行 {name} 不能为空")
                     record[name] = text
+            if record["picture"] and not record["src"]:
+                raise ValueError(f"第 {row_number} 行 src 不能为空")
             records.append(record)
         return records
     finally:

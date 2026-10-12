@@ -44,6 +44,9 @@ REUSE_PORT = 9230
 IMAGING_MANAGE_PATH = "/imaging/manage"
 # 该标记出现在图片管理页内容里，不在 Seller Central 通用顶栏上。
 IMAGING_MANAGE_MARKER = '[data-testid="image-manager-tab"]'
+# 描述页。完成标记是内容区的 ASIN 搜索框，不在通用顶栏上。
+CONTENT_MANAGER_PATH = "/enhanced-content/content-manager"
+DESCRIPTION_PAGE_MARKER = 'kat-input[placeholder="搜索 ASIN 或商品名称"]'
 SITE_SWITCHER_ICON_SELECTOR = ".dropdown-account-switcher-header-trailing-icon"
 SITE_SWITCHER_HEADER_SELECTOR = ".dropdown-account-switcher-header"
 SITE_SWITCHER_LIST_SELECTOR = ".dropdown-account-switcher-list"
@@ -79,6 +82,11 @@ def port_for(country):
 def home_url(country):
     """返回启动时打开的 Seller Central 首页。"""
     return "https://" + SELLER_CENTRAL_DOMAINS[country_code(country)]
+
+
+def description_page_url(country):
+    """返回该国描述页的完整网址。路径固定为 /enhanced-content/content-manager。"""
+    return home_url(country) + CONTENT_MANAGER_PATH
 
 
 def imaging_manage_url(country):
@@ -154,6 +162,31 @@ class PageNavigationError(Exception):
     """已经连上 Chrome，但没有进入目标页。"""
 
 
+def connect_country(country, timeout=30) -> PageSession:
+    """拉起该国独立 Chrome，并连接上面已打开的 Seller Central 页面。
+
+    端口已在监听时复用现有窗口，不另开第二个进程。
+    不打开图片页，也不打开描述页。选站点前用这一步。
+    """
+    return _connect_country_page(country, timeout=min(float(timeout), 20))
+
+
+def switch_to_description_page(session, country, timeout=30):
+    """切换到描述页。
+
+    在已连接的页面上打开该 country 的 /enhanced-content/content-manager。
+    成功时网址正确、页面已加载，且 ASIN 搜索框已出现。
+    不填写，不提交。
+    """
+    _navigate_and_wait(
+        session,
+        description_page_url(country),
+        timeout,
+        DESCRIPTION_PAGE_MARKER,
+        "描述页标记",
+    )
+
+
 def return_to_imaging_manage(session, country, timeout=30):
     """在已连接的页面上打开该 country 的图片管理网址。
 
@@ -186,7 +219,8 @@ def open_imaging_manage(country, timeout=30) -> PageSession:
 
 
 def _connect_country_page(country, timeout):
-    """连到该国端口上的 Seller Central 标签。没有时再用其他普通网页。"""
+    """先拉起该国独立 Chrome，再连到 Seller Central 标签。没有时再用其他普通网页。"""
+    launch_chrome(country)
     domain = SELLER_CENTRAL_DOMAINS[country_code(country)]
     port = port_for(country)
     deadline = time.monotonic() + float(timeout)
@@ -231,13 +265,14 @@ def _choose_country_target(targets, domain):
     return pages[0]
 
 
-def _navigate_and_wait(session, url, timeout):
+def _navigate_and_wait(session, url, timeout, marker=None, marker_name="图片管理标记"):
     """发 Page.navigate，然后轮询可观测条件，直到就绪或超时。
 
     Page.navigate 的调用方式参考原项目 ChromePage.navigate。
     轮询 readyState 的方式参考原项目 open_upload_page。
     原项目在导航后有一段固定等待；这里不以那段等待作为成功条件。
     """
+    ready_marker = IMAGING_MANAGE_MARKER if marker is None else marker
     result = session.call("Page.navigate", {"url": url})
     error_text = str((result or {}).get("errorText") or "").strip()
     if error_text:
@@ -248,7 +283,7 @@ def _navigate_and_wait(session, url, timeout):
     while True:
         last = session.evaluate(
             "(() => ({href: location.href, readyState: document.readyState,"
-            f" marker: !!document.querySelector({json.dumps(IMAGING_MANAGE_MARKER)})}}))()"
+            f" marker: !!document.querySelector({json.dumps(ready_marker)})}}))()"
         ) or {}
         if _imaging_page_ready(last, expected):
             return
@@ -259,8 +294,8 @@ def _navigate_and_wait(session, url, timeout):
     if not _same_page(current, expected):
         raise PageNavigationError("页面不对，当前网址是：" + (current or "空"))
     ready = last.get("readyState") or "未知"
-    marker = "已出现" if last.get("marker") else "未出现"
-    raise PageNavigationError(f"导航超时：readyState={ready}，图片管理标记{marker}")
+    appeared = "已出现" if last.get("marker") else "未出现"
+    raise PageNavigationError(f"导航超时：readyState={ready}，{marker_name}{appeared}")
 
 
 def _imaging_page_ready(state, expected):

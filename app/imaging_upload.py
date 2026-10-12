@@ -89,18 +89,18 @@ def _element_state_js(selector):
     )
 
 
-def upload_images(session, keyword, country, picture_root, timeout=30, log_path=None, log_context=None):
-    """搜索关键词，并把该国目录里的图片逐位上传。
+def upload_images(session, keyword, country, directory, timeout=30, log_path=None, log_context=None):
+    """搜索关键词，并把目录里的图片逐位上传。
 
-    picture_root 是图片根目录。实际目录为
-    picture_root/<关键词>/<国家代码>/。
+    directory 是 picture/<国家代码>/<sku>/<站点代码>。
+    country 决定页面上的站点模块。
     返回每张数字图片的结果。01 对应国家模块里的第一个框。
     """
     code = country_code(country)
     text = str(keyword or "").strip()
     if not text:
         raise NeedsManual("关键词为空")
-    directory = Path(picture_root) / text / code
+    directory = Path(directory)
     _search(session, text, timeout)
     _reveal_country(session, code, timeout)
     return _upload_slots(session, code, directory, timeout, log_path, log_context)
