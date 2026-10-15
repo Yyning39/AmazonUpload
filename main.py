@@ -1,5 +1,6 @@
 """程序入口。先打开卖家后台，再选择 Excel，选中后读取并上传。"""
 
+import sys
 from pathlib import Path
 
 from app.browser import launch_chrome
@@ -9,7 +10,15 @@ from app.import_ui import ImportWindow, _report_text
 from app.logging_setup import setup_logging
 from app.pipeline import run
 
-ROOT = Path(__file__).resolve().parent
+
+def project_root():
+    """开发时用源码目录。打包后用随 exe 带上的资源目录。"""
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    return Path(__file__).resolve().parent
+
+
+ROOT = project_root()
 
 
 def database_path(config):
