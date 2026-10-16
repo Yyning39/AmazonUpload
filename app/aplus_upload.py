@@ -8,29 +8,37 @@ from app.imaging_upload import NeedsManual
 
 
 # 外层在页面上。真正的 input 在 kat-input 的 shadowRoot 里。
-ASIN_INPUT_SELECTOR = 'kat-input[placeholder="搜索 ASIN 或商品名称"]'
-# SKU 搜索在表格组件内部，不在页面第一层。
+ASIN_INPUT_SELECTOR = 'kat-input[data-component-id="project-search-box"]'
+# SKU 搜索在表格组件的 shadowRoot 里。part 不随语言变化。
 DATA_GRID_SELECTOR = "kat-data-grid"
 SKU_FORM_SELECTOR = ".search-form"
-SKU_INPUT_SELECTOR = 'kat-input.search-input[placeholder="搜索"]'
-SEARCH_BUTTON_SELECTOR = 'kat-button.search-button[label="搜索"]'
+SKU_INPUT_SELECTOR = 'kat-input.search-input[part="search-input"]'
+SEARCH_BUTTON_SELECTOR = 'kat-button.search-button[part="search-submit"]'
 RESULT_ROW_SELECTOR = ".ag-center-cols-container .ag-row"
 NAME_LINK_SELECTOR = '.ag-cell[col-id="name"] kat-link'
 TYPE_CELL_SELECTOR = '.ag-cell[col-id="contentType"]'
 CONTENT_STATUS_CELL_SELECTOR = '.ag-cell[col-id="contentStatus"]'
-NEXT_PAGE_SELECTOR = '.ag-paging-button[aria-label="下一页"]'
+NEXT_PAGE_SELECTOR = '.ag-paging-button[ref="btNext"]'
 PAGE_SUMMARY_SELECTOR = ".ag-paging-description"
-DETAIL_HEADER_SELECTOR = "kat-page-header"
-DETAIL_TITLE = "商品描述详情"
 CONTENT_TYPE_EBC = "EBC"
-CONTENT_STATUS_DRAFT = "草稿"
-# 弹层里的这一颗。顶栏那颗另有 class="active" 和 data-component-id，不点。
-APPROVE_BUTTON_SELECTOR = 'kat-modal kat-button[variant="primary"][size="base"][type="button"]'
-APPROVE_BUTTON_TEXT = "提交以供批准"
-STATUS_ROOT_SELECTOR = "#app-overview"
-STATUS_LABEL_SELECTOR = "#app-overview kat-label"
-STATUS_LABEL_TEXT = "状态"
-STATUS_SUBMITTED = "已提交"
+# 同一状态在中文和英文界面上的词。西班牙页上看到的是 Draft，不是「草稿」。
+DRAFT_STATUSES = {"草稿", "draft"}
+SUBMITTED_STATUSES = {"已提交", "submitted"}
+SEARCH_ATTEMPTS = 3
+SEARCH_WAIT_SECONDS = 60
+# 提交弹层里的确定按钮。顶栏那颗是 submit-content-for-approval-button，不在这个弹层里。
+APPROVE_BUTTON_SELECTOR = 'kat-modal[data-component-id="submit-content-modal"] kat-button[variant="primary"][size="base"][type="button"]'
+STATUS_ROOT_SELECTOR = '[data-component-id="content-details-status"]'
+
+
+def _is_draft(status):
+    return str(status or "").strip().casefold() in DRAFT_STATUSES
+
+
+def _is_submitted(status):
+    return str(status or "").strip().casefold() in SUBMITTED_STATUSES
+
+
 REVISION_STEPS = ("/edit", "/asins/edit", "/preview/edit", "/preview/edit/submit")
 
 
@@ -59,29 +67,64 @@ def search_description(session, asin, sku, timeout=30):
 def open_matched_description(session, sku, timeout=30, previous=None):
     """在搜索结果里逐行对比，点开第一条名称与 SKU 相同、内容类型为 EBC、内容状态为草稿的描述。
 
+    搜索结果经常晚于点击出现。这里最多检索 3 次，每次最多等 60 秒。
     当前页没有就点下一页。不判断语言、ASIN。没有匹配行时只抛错，不回写。
     """
+    del timeout
     sku_text = str(sku or "").strip()
     if not sku_text:
         raise NeedsManual("SKU 为空")
-    started = time.monotonic()
-    deadline = started + float(timeout)
+    stamp = previous
+    last_error = None
+    for attempt in range(1, SEARCH_ATTEMPTS + 1):
+        if attempt > 1:
+            stamp = session.evaluate(_list_stamp_js()) or {}
+            if not session.evaluate(_click_search_button_js()):
+                raise NeedsManual("无法再次点击 SKU 搜索按钮")
+        started = time.monotonic()
+        deadline = started + SEARCH_WAIT_SECONDS
+        try:
+            _open_search_match(session, sku_text, started, deadline, stamp)
+            return
+        except NeedsManual as exc:
+            last_error = exc
+            if attempt == SEARCH_ATTEMPTS or not _search_can_retry(exc):
+                raise
+    raise last_error
+
+
+def _search_can_retry(exc):
+    text = str(exc)
+    return (
+        text.startswith("没有名称与 SKU 相同")
+        or text.startswith("等待描述搜索结果超时")
+        or text.startswith("无法读取商品描述名称")
+    )
+
+
+def _open_search_match(session, sku_text, started, deadline, previous):
     _wait_for_search_results(session, started, deadline, previous)
     seen_pages = set()
     while True:
         state = _require_list(session, started, deadline)
         page_text = state.get("pageText") or ""
+        rows = state.get("rows") or []
+        if rows and all(not str(row.get("name") or "").strip() for row in rows):
+            if time.monotonic() >= deadline:
+                raise NeedsManual("无法读取商品描述名称")
+            time.sleep(0.25)
+            continue
         if page_text in seen_pages:
             raise NeedsManual(f"翻页后页码没有变化：{page_text}")
         seen_pages.add(page_text)
-        rows = state.get("rows") or []
         if any(row.get("linked") and not row.get("name") for row in rows):
             raise NeedsManual("无法读取商品描述名称")
         matched = _first_match(rows, sku_text)
         if matched:
-            if not session.evaluate(_click_name_link_js(matched.get("href") or "")):
+            href = matched.get("href") or ""
+            if not session.evaluate(_click_name_link_js(href)):
                 raise NeedsManual("无法点击商品描述名称")
-            _wait_for_detail(session, started, deadline)
+            _wait_for_detail(session, started, deadline, href)
             return
         if not state.get("nextEnabled"):
             raise NeedsManual("没有名称与 SKU 相同、内容类型为 EBC、内容状态为草稿的商品描述")
@@ -198,7 +241,7 @@ def _first_match(rows, sku):
         if (
             row.get("name") == sku
             and row.get("type") == CONTENT_TYPE_EBC
-            and row.get("status") == CONTENT_STATUS_DRAFT
+            and _is_draft(row.get("status"))
         ):
             return row
     return None
@@ -264,19 +307,20 @@ def _wait_for_page_change(session, started, deadline, previous_page):
         time.sleep(0.25)
 
 
-def _wait_for_detail(session, started, deadline):
-    """详情页标题在 kat-page-header 内部，页面表面的 h1 不算。"""
+def _wait_for_detail(session, started, deadline, href):
+    """点开后的网址变成这条描述的地址。不看标题文字。"""
+    expected = urlparse(str(href or "")).path.rstrip("/")
+    if not expected or expected == "/":
+        raise NeedsManual("商品描述链接没有地址")
     while True:
-        state = session.evaluate(_detail_state_js()) or {}
-        ready = state.get("readyState") in {"interactive", "complete"}
-        if ready and state.get("ok"):
+        state = session.evaluate(_detail_location_js(expected)) or {}
+        if state.get("ok"):
             return
-        if int(state.get("headers") or 0) > 1:
-            raise NeedsManual("商品描述详情标题不止一个")
         if time.monotonic() >= deadline:
             ready_state = state.get("readyState") or "未知"
+            current = state.get("path") or "空"
             raise NeedsManual(
-                f"等待商品描述详情超时：{DETAIL_HEADER_SELECTOR}，等了 {time.monotonic() - started:.1f} 秒，readyState={ready_state}"
+                f"等待商品描述详情超时：{expected}，等了 {time.monotonic() - started:.1f} 秒，readyState={ready_state}，当前路径={current}"
             )
         time.sleep(0.25)
 
@@ -318,8 +362,9 @@ def _list_rows_js():
         const typeCell = row.querySelector({json.dumps(TYPE_CELL_SELECTOR)});
         const statusCell = row.querySelector({json.dumps(CONTENT_STATUS_CELL_SELECTOR)});
         const shadowText = link && link.shadowRoot ? (link.shadowRoot.textContent || '') : '';
+        const labelText = link ? (link.getAttribute('label') || '') : '';
         return {{
-          name: shadowText.replace(/\\s+/g, ' ').trim(),
+          name: (labelText || shadowText).replace(/\\s+/g, ' ').trim(),
           type: ((typeCell && typeCell.innerText) || '').replace(/\\s+/g, ' ').trim(),
           status: ((statusCell && statusCell.innerText) || '').replace(/\\s+/g, ' ').trim(),
           href: link ? (link.getAttribute('href') || '') : '',
@@ -370,29 +415,24 @@ def _click_name_link_js(href):
     }})()"""
 
 
-def _detail_state_js():
-    title = json.dumps(DETAIL_TITLE)
+def _detail_location_js(expected):
+    path = json.dumps(expected)
     return f"""(() => {{
-      const headers = [...document.querySelectorAll({json.dumps(DETAIL_HEADER_SELECTOR)})];
-      const header = headers.length === 1 ? headers[0] : null;
-      const heading = header && header.shadowRoot ? header.shadowRoot.querySelector('h1') : null;
-      const text = heading ? (heading.textContent || '').replace(/\\s+/g, ' ').trim() : '';
-      return {{
-        ok: headers.length === 1 && text === {title},
-        headers: headers.length,
-        text,
-        readyState: document.readyState
-      }};
+      const current = location.pathname.replace(/\\/+$/, "") || "/";
+      const ready = document.readyState === 'interactive' || document.readyState === 'complete';
+      const wanted = {path};
+      const ok = ready && (current === wanted || current.indexOf(wanted + "/") === 0);
+      return {{ok, path: current, readyState: document.readyState}};
     }})()"""
 
 
 def submit_for_approval(session, timeout=30):
     """从当前详情网址的修订编号出发，依次打开四个后缀，再点弹层里的提交按钮。
 
-    按钮是 kat-modal 里 variant="primary"、size="base"、type="button"、文字为「提交以供批准」的那一颗。
-    成功标志是 #app-overview 里「状态」旁边的文字变为「已提交」。
+    按钮是提交弹层 submit-content-modal 里那颗 primary 按钮，不看按钮文字。
+    成功标志是 content-details-status 里的状态值变为「已提交」。
     """
-    href = session.evaluate("location.href") or ""
+    href = _wait_for_revision_href(session, timeout)
     base = _revision_base(href)
     for suffix in REVISION_STEPS:
         _open_revision_step(session, base + suffix, timeout)
@@ -400,6 +440,20 @@ def submit_for_approval(session, timeout=30):
     if not session.evaluate(_click_approve_button_js()):
         raise NeedsManual("无法点击提交以供批准")
     _wait_for_submitted(session, timeout)
+
+
+def _wait_for_revision_href(session, timeout):
+    """内容页会先停在 /content/编号，随后才跳到 /revision/修订号。等到修订号出现。"""
+    started = time.monotonic()
+    deadline = started + float(timeout)
+    href = ""
+    while True:
+        href = session.evaluate("location.href") or ""
+        if "/revision/" in (urlparse(str(href)).path or ""):
+            return href
+        if time.monotonic() >= deadline:
+            raise NeedsManual("等待修订编号超时，当前网址：" + (href or "空"))
+        time.sleep(0.25)
 
 
 def _revision_base(href):
@@ -475,16 +529,16 @@ def _wait_for_submitted(session, timeout):
         labels = int(state.get("labels") or 0)
         paragraphs = int(state.get("paragraphs") or 0)
         if labels > 1:
-            raise NeedsManual(f"状态标签不止一个：{STATUS_LABEL_SELECTOR}")
+            raise NeedsManual(f"状态栏不止一个：{STATUS_ROOT_SELECTOR}")
         if labels == 1 and paragraphs > 1:
-            raise NeedsManual(f"状态文字不止一处：{STATUS_ROOT_SELECTOR}")
-        if ready and state.get("text") == STATUS_SUBMITTED:
+            raise NeedsManual(f"状态值不止一处：{STATUS_ROOT_SELECTOR}")
+        if ready and _is_submitted(state.get("text")):
             return
         if time.monotonic() >= deadline:
             ready_state = state.get("readyState") or "未知"
             current = state.get("text") or "空"
             raise NeedsManual(
-                f"等待已提交超时：{STATUS_LABEL_SELECTOR}，等了 {time.monotonic() - started:.1f} 秒，readyState={ready_state}，当前状态={current}"
+                f"等待已提交超时：{STATUS_ROOT_SELECTOR}，等了 {time.monotonic() - started:.1f} 秒，readyState={ready_state}，当前状态={current}"
             )
         time.sleep(0.25)
 
@@ -498,22 +552,16 @@ def _location_state_js():
 
 def _approve_button_state_js():
     selector = json.dumps(APPROVE_BUTTON_SELECTOR)
-    text = json.dumps(APPROVE_BUTTON_TEXT)
     return f"""(() => {{
-      const buttons = [...document.querySelectorAll({selector})].filter(el => {{
-        return (el.innerText || '').replace(/\\s+/g, ' ').trim() === {text};
-      }});
+      const buttons = [...document.querySelectorAll({selector})];
       return {{count: buttons.length, readyState: document.readyState}};
     }})()"""
 
 
 def _click_approve_button_js():
     selector = json.dumps(APPROVE_BUTTON_SELECTOR)
-    text = json.dumps(APPROVE_BUTTON_TEXT)
     return f"""(() => {{
-      const buttons = [...document.querySelectorAll({selector})].filter(el => {{
-        return (el.innerText || '').replace(/\\s+/g, ' ').trim() === {text};
-      }});
+      const buttons = [...document.querySelectorAll({selector})];
       if (buttons.length !== 1) return false;
       const inner = buttons[0].shadowRoot && buttons[0].shadowRoot.querySelector('button');
       if (!(inner instanceof HTMLButtonElement)) return false;
@@ -524,18 +572,11 @@ def _click_approve_button_js():
 
 def _status_state_js():
     root = json.dumps(STATUS_ROOT_SELECTOR)
-    label_text = json.dumps(STATUS_LABEL_TEXT)
     return f"""(() => {{
-      const overview = document.querySelector({root});
       const readyState = document.readyState;
-      if (!overview) return {{labels: 0, paragraphs: 0, text: '', readyState}};
-      const labels = [...overview.querySelectorAll('kat-label')].filter(el => {{
-        const label = el.querySelector('label');
-        return ((label && label.textContent) || '').replace(/\\s+/g, ' ').trim() === {label_text};
-      }});
-      if (labels.length !== 1) return {{labels: labels.length, paragraphs: 0, text: '', readyState}};
-      const block = labels[0].parentElement && labels[0].parentElement.parentElement;
-      const paragraphs = block ? [...block.children].filter(el => el.tagName === 'P') : [];
+      const blocks = [...document.querySelectorAll({root})];
+      if (blocks.length !== 1) return {{labels: blocks.length, paragraphs: 0, text: '', readyState}};
+      const paragraphs = [...blocks[0].children].filter(el => el.tagName === 'P');
       const text = paragraphs.length === 1 ? (paragraphs[0].textContent || '').replace(/\\s+/g, ' ').trim() : '';
       return {{labels: 1, paragraphs: paragraphs.length, text, readyState}};
     }})()"""

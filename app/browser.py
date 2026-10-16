@@ -46,20 +46,21 @@ IMAGING_MANAGE_PATH = "/imaging/manage"
 IMAGING_MANAGE_MARKER = '[data-testid="image-manager-tab"]'
 # 描述页。完成标记是内容区的 ASIN 搜索框，不在通用顶栏上。
 CONTENT_MANAGER_PATH = "/enhanced-content/content-manager"
-DESCRIPTION_PAGE_MARKER = 'kat-input[placeholder="搜索 ASIN 或商品名称"]'
+DESCRIPTION_PAGE_MARKER = 'kat-input[data-component-id="project-search-box"]'
 SITE_SWITCHER_ICON_SELECTOR = ".dropdown-account-switcher-header-trailing-icon"
 SITE_SWITCHER_HEADER_SELECTOR = ".dropdown-account-switcher-header"
 SITE_SWITCHER_LIST_SELECTOR = ".dropdown-account-switcher-list"
 SITE_OPTION_SELECTOR = ".dropdown-account-switcher-list-item-indented"
-SITE_CURRENT_LABEL_SELECTOR = ".dropdown-account-switcher-header-label-regional"
-# 代码对应选项文字和旗帜 data-test。英国旗帜是 country-flag-GB。
+# 点选靠旗帜 data-test。英国旗帜是 country-flag-GB。
+# 切完不看顶栏站名。网址参数 mons_sel_mkid 里的编号不随语言变化。
+# 西班牙页上看到的是 amzn1.mp.o.A1RKKUPIHCS9HS。
 # 美国、加拿大不在当前展开的 OutSunny Iberica 列表里，没有看到旗帜代码，不写入。
 SITE_OPTIONS = {
-    "UK": {"label": "英国", "flag": "GB"},
-    "DE": {"label": "德国", "flag": "DE"},
-    "FR": {"label": "法国", "flag": "FR"},
-    "IT": {"label": "意大利", "flag": "IT"},
-    "ES": {"label": "西班牙", "flag": "ES"},
+    "UK": {"flag": "GB", "marketplace_id": "A1F83G8C2ARO7P"},
+    "DE": {"flag": "DE", "marketplace_id": "A1PA6795UKMFR9"},
+    "FR": {"flag": "FR", "marketplace_id": "A13V1IB3VIYZZH"},
+    "IT": {"flag": "IT", "marketplace_id": "APJ6JRA9NG5V4"},
+    "ES": {"flag": "ES", "marketplace_id": "A1RKKUPIHCS9HS"},
 }
 
 
@@ -229,7 +230,7 @@ def _connect_country_page(country, timeout):
         session = None
         try:
             target = _choose_country_target(list_targets(port), domain)
-            session = PageSession(target)
+            session = PageSession(target, timeout=60)
             session.confirm_control()
             return session
         except Exception as exc:
@@ -352,7 +353,7 @@ def switch_site(session, country, timeout=30):
     _wait_site_option(session, option["flag"], timeout)
     if not session.evaluate(_click_site_option_js(option["flag"])):
         raise NeedsManual(f"无法点击站点选项 {code}")
-    _wait_site_label(session, option["label"], timeout)
+    _wait_site_marketplace(session, option["marketplace_id"], SELLER_CENTRAL_DOMAINS[code], timeout)
 
 
 def _wait_switcher_icon(session, timeout):
@@ -397,20 +398,23 @@ def _wait_site_option(session, flag, timeout):
         time.sleep(0.25)
 
 
-def _wait_site_label(session, label, timeout):
+def _wait_site_marketplace(session, marketplace_id, hostname, timeout):
+    """有 mons_sel_mkid 时对编号。地址里没有这个参数时，对国家域名。不读顶栏站名。"""
     from app.imaging_upload import NeedsManual
 
     started = time.monotonic()
     deadline = started + float(timeout)
     while True:
-        if session.evaluate(_site_label_js(label)):
+        state = session.evaluate(_site_marketplace_js(marketplace_id, hostname)) or {}
+        if state.get("matched"):
             return
         if time.monotonic() >= deadline:
             elapsed = time.monotonic() - started
-            ready = session.evaluate("document.readyState") or "未知"
-            current = session.evaluate(_site_label_text_js()) or ""
+            ready = state.get("readyState") or "未知"
+            current_id = state.get("mkid") or "空"
+            current_host = state.get("host") or "空"
             raise NeedsManual(
-                f"等待站点切换完成超时：{SITE_CURRENT_LABEL_SELECTOR}，等了 {elapsed:.1f} 秒，readyState={ready}，当前文字={current}"
+                f"等待站点切换完成超时：编号 {marketplace_id} 或域名 {hostname}，等了 {elapsed:.1f} 秒，readyState={ready}，当前编号={current_id}，当前域名={current_host}"
             )
         time.sleep(0.25)
 
@@ -464,20 +468,20 @@ def _click_site_option_js(flag):
     }})()"""
 
 
-def _site_label_js(label):
-    selector = json.dumps(SITE_CURRENT_LABEL_SELECTOR)
-    wanted = json.dumps(label)
+def _site_marketplace_js(marketplace_id, hostname):
+    wanted_id = json.dumps(marketplace_id)
+    wanted_host = json.dumps(str(hostname or "").lower())
     return f"""(() => {{
-      const labels = [...document.querySelectorAll({selector})];
-      if (labels.length !== 1) return false;
+      const href = location.href;
+      const host = (location.hostname || '').toLowerCase();
       const ready = document.readyState === 'interactive' || document.readyState === 'complete';
-      return ready && (labels[0].innerText || '').trim() === {wanted};
-    }})()"""
-
-
-def _site_label_text_js():
-    selector = json.dumps(SITE_CURRENT_LABEL_SELECTOR)
-    return f"""(() => {{
-      const labels = [...document.querySelectorAll({selector})];
-      return labels.length === 1 ? (labels[0].innerText || '').trim() : '';
+      let mkid = '';
+      try {{
+        mkid = new URL(href).searchParams.get('mons_sel_mkid') || '';
+      }} catch (e) {{
+        mkid = '';
+      }}
+      const byId = mkid.indexOf({wanted_id}) >= 0;
+      const byHost = !mkid && host === {wanted_host};
+      return {{matched: ready && (byId || byHost), mkid, host, readyState: document.readyState}};
     }})()"""

@@ -799,3 +799,589 @@ market：意大利
 - 14 PS02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41ezknlh1FL.jpg：无变化
 - 15 PS03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/71yB-OLVArL.jpg：无变化
 - 16 PT09 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 13:11:55
+监听端口：9227
+关键词：A70-AAIVJJMX-GM
+sku：A70-AAIVJJMX-GM
+asin：B0HGX1YN5P
+country：意大利
+market：意大利
+图片：01.jpg → 第 01 张，页面位置 MAIN
+结果：成功
+各框变化：
+- 1 MAIN / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51c9yvLk+QL.jpg → MAIN / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.it/05d21524-70b1-43a0-8d3c-42f9a57b8056
+- 2 FRNT / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/411bdZHhlTL.jpg：无变化
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51+0i0WaqTL.jpg：无变化
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/417xRV9updL.jpg：无变化
+- 6 PT02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51LKmpm8+cL.jpg：无变化
+- 7 PT03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51kvrrbNRyL.jpg：无变化
+- 8 PT04 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51EWnHMSJxL.jpg：无变化
+- 9 PT05 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51Olq1MY4DL.jpg：无变化
+- 10 PT06 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51SH0AukEeL.jpg：无变化
+- 11 PT07 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51KrBsFlZTL.jpg：无变化
+- 12 PT08 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51KpewVnQvL.jpg：无变化
+- 13 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41EKjrzje3L.jpg：无变化
+- 14 PS02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41ezknlh1FL.jpg：无变化
+- 15 PS03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/71yB-OLVArL.jpg：无变化
+- 16 PT09 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 13:12:02
+监听端口：9227
+关键词：A70-AAIVJJMX-GM
+sku：A70-AAIVJJMX-GM
+asin：B0HGX1YN5P
+country：意大利
+market：意大利
+图片：02.jpg → 第 02 张，页面位置 FRNT
+结果：成功
+各框变化：
+- 1 MAIN / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.it/05d21524-70b1-43a0-8d3c-42f9a57b8056 → MAIN / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.it/718da522-0e4c-48fd-a204-8258c3b065f3
+- 2 FRNT / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/411bdZHhlTL.jpg → FRNT / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.it/10fa3795-ef54-439c-bd5b-fa81bdb792ec
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51+0i0WaqTL.jpg：无变化
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/417xRV9updL.jpg：无变化
+- 6 PT02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51LKmpm8+cL.jpg：无变化
+- 7 PT03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51kvrrbNRyL.jpg：无变化
+- 8 PT04 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51EWnHMSJxL.jpg：无变化
+- 9 PT05 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51Olq1MY4DL.jpg：无变化
+- 10 PT06 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51SH0AukEeL.jpg：无变化
+- 11 PT07 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51KrBsFlZTL.jpg：无变化
+- 12 PT08 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51KpewVnQvL.jpg：无变化
+- 13 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41EKjrzje3L.jpg：无变化
+- 14 PS02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41ezknlh1FL.jpg：无变化
+- 15 PS03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/71yB-OLVArL.jpg：无变化
+- 16 PT09 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 13:12:09
+监听端口：9227
+关键词：A70-AAIVJJMX-GM
+sku：A70-AAIVJJMX-GM
+asin：B0HGX1YN5P
+country：意大利
+market：意大利
+图片：03.jpg → 第 03 张，页面位置 SIDE
+结果：成功
+各框变化：
+- 1 MAIN / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.it/718da522-0e4c-48fd-a204-8258c3b065f3 → MAIN / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.it/d204aa8e-5a05-4417-8f9e-cde954ba5798
+- 2 FRNT / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.it/10fa3795-ef54-439c-bd5b-fa81bdb792ec → FRNT / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.it/774171ea-1e44-4969-9165-b03515f17531
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51+0i0WaqTL.jpg → SIDE / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.it/51eddd22-b127-47f9-9ef7-c3164e9abf5d
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/417xRV9updL.jpg：无变化
+- 6 PT02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51LKmpm8+cL.jpg：无变化
+- 7 PT03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51kvrrbNRyL.jpg：无变化
+- 8 PT04 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51EWnHMSJxL.jpg：无变化
+- 9 PT05 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51Olq1MY4DL.jpg：无变化
+- 10 PT06 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51SH0AukEeL.jpg：无变化
+- 11 PT07 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51KrBsFlZTL.jpg：无变化
+- 12 PT08 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51KpewVnQvL.jpg：无变化
+- 13 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41EKjrzje3L.jpg：无变化
+- 14 PS02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41ezknlh1FL.jpg：无变化
+- 15 PS03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/71yB-OLVArL.jpg：无变化
+- 16 PT09 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 13:28:27
+监听端口：9227
+关键词：A70-AAIVJJMX-GM
+sku：A70-AAIVJJMX-GM
+asin：B0HGX1YN5P
+country：意大利
+market：意大利
+图片：01.jpg → 第 01 张，页面位置 MAIN
+结果：失败 MAIN位置原有图片无法删除，未上传新图
+各框变化：
+- 1 MAIN / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51c9yvLk+QL.jpg：无变化
+- 2 FRNT / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/411bdZHhlTL.jpg：无变化
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51+0i0WaqTL.jpg：无变化
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/417xRV9updL.jpg：无变化
+- 6 PT02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51LKmpm8+cL.jpg：无变化
+- 7 PT03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51kvrrbNRyL.jpg：无变化
+- 8 PT04 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51EWnHMSJxL.jpg：无变化
+- 9 PT05 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51Olq1MY4DL.jpg：无变化
+- 10 PT06 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51SH0AukEeL.jpg：无变化
+- 11 PT07 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51KrBsFlZTL.jpg：无变化
+- 12 PT08 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51KpewVnQvL.jpg：无变化
+- 13 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41EKjrzje3L.jpg：无变化
+- 14 PS02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41ezknlh1FL.jpg：无变化
+- 15 PS03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/71yB-OLVArL.jpg：无变化
+- 16 PT09 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 13:28:30
+监听端口：9227
+关键词：A70-AAIVJJMX-GM
+sku：A70-AAIVJJMX-GM
+asin：B0HGX1YN5P
+country：意大利
+market：意大利
+图片：02.jpg → 第 02 张，页面位置 FRNT
+结果：失败 FRNT位置原有图片无法删除，未上传新图
+各框变化：
+- 1 MAIN / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51c9yvLk+QL.jpg：无变化
+- 2 FRNT / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/411bdZHhlTL.jpg → FRNT / variant-label / url-image / 实位 / 审核中 / https://m.media-amazon.com/images/I/411bdZHhlTL.jpg
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51+0i0WaqTL.jpg → SIDE / variant-label / url-image / 实位 / 审核中 / https://m.media-amazon.com/images/I/51+0i0WaqTL.jpg
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/417xRV9updL.jpg：无变化
+- 6 PT02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51LKmpm8+cL.jpg：无变化
+- 7 PT03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51kvrrbNRyL.jpg：无变化
+- 8 PT04 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51EWnHMSJxL.jpg：无变化
+- 9 PT05 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51Olq1MY4DL.jpg：无变化
+- 10 PT06 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51SH0AukEeL.jpg：无变化
+- 11 PT07 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51KrBsFlZTL.jpg：无变化
+- 12 PT08 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51KpewVnQvL.jpg：无变化
+- 13 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41EKjrzje3L.jpg：无变化
+- 14 PS02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41ezknlh1FL.jpg：无变化
+- 15 PS03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/71yB-OLVArL.jpg：无变化
+- 16 PT09 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 13:28:30
+监听端口：9227
+关键词：A70-AAIVJJMX-GM
+sku：A70-AAIVJJMX-GM
+asin：B0HGX1YN5P
+country：意大利
+market：意大利
+图片：03.jpg → 第 03 张，页面位置 SIDE
+结果：失败 SIDE位置原有图片无法删除，未上传新图
+各框变化：
+- 1 MAIN / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51c9yvLk+QL.jpg：无变化
+- 2 FRNT / variant-label / url-image / 实位 / 审核中 / https://m.media-amazon.com/images/I/411bdZHhlTL.jpg：无变化
+- 3 SIDE / variant-label / url-image / 实位 / 审核中 / https://m.media-amazon.com/images/I/51+0i0WaqTL.jpg：无变化
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/417xRV9updL.jpg：无变化
+- 6 PT02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51LKmpm8+cL.jpg：无变化
+- 7 PT03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51kvrrbNRyL.jpg：无变化
+- 8 PT04 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51EWnHMSJxL.jpg：无变化
+- 9 PT05 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51Olq1MY4DL.jpg：无变化
+- 10 PT06 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51SH0AukEeL.jpg：无变化
+- 11 PT07 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51KrBsFlZTL.jpg：无变化
+- 12 PT08 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51KpewVnQvL.jpg：无变化
+- 13 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41EKjrzje3L.jpg：无变化
+- 14 PS02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41ezknlh1FL.jpg：无变化
+- 15 PS03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/71yB-OLVArL.jpg：无变化
+- 16 PT09 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 13:37:52
+监听端口：9228
+关键词：845-530V00GY
+sku：845-530V00GY
+asin：845-530V00GY
+country：西班牙
+market：西班牙
+图片：01.jpg → 第 01 张，页面位置 MAIN
+结果：失败 MAIN位置原有图片无法删除，未上传新图
+各框变化：
+- 1 MAIN / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51za7CBzxzL.jpg：无变化
+- 2 FRNT / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/31OsgfjrFuL.jpg：无变化
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51IbjF+bfaL.jpg：无变化
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 6 PT02 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 7 PT03 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 8 PT04 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 9 PT05 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 10 PT06 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 11 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41DFwa9RaPL.jpg：无变化
+- 12 PT07 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 13:59:19
+监听端口：9228
+关键词：845-530V00GY
+sku：845-530V00GY
+asin：845-530V00GY
+country：西班牙
+market：西班牙
+图片：01.jpg → 第 01 张，页面位置 MAIN
+结果：成功
+各框变化：
+- 1 MAIN / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51za7CBzxzL.jpg → MAIN / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/7f822014-91c4-47bb-877a-fa66d8b9006a
+- 2 FRNT / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/31OsgfjrFuL.jpg：无变化
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51IbjF+bfaL.jpg：无变化
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 6 PT02 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 7 PT03 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 8 PT04 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 9 PT05 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 10 PT06 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 11 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41DFwa9RaPL.jpg：无变化
+- 12 PT07 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 13:59:29
+监听端口：9228
+关键词：845-530V00GY
+sku：845-530V00GY
+asin：845-530V00GY
+country：西班牙
+market：西班牙
+图片：02.jpg → 第 02 张，页面位置 FRNT
+结果：成功
+各框变化：
+- 1 MAIN / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/7f822014-91c4-47bb-877a-fa66d8b9006a → MAIN / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.es/c1826633-e10d-4890-9305-398a21f3e3f6
+- 2 FRNT / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/31OsgfjrFuL.jpg → FRNT / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/ab0827e5-06c6-407f-b705-eec519cca740
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51IbjF+bfaL.jpg：无变化
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 6 PT02 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 7 PT03 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 8 PT04 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 9 PT05 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 10 PT06 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 11 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41DFwa9RaPL.jpg：无变化
+- 12 PT07 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 13:59:36
+监听端口：9228
+关键词：845-530V00GY
+sku：845-530V00GY
+asin：845-530V00GY
+country：西班牙
+market：西班牙
+图片：03.jpg → 第 03 张，页面位置 SIDE
+结果：成功
+各框变化：
+- 1 MAIN / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.es/c1826633-e10d-4890-9305-398a21f3e3f6 → MAIN / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.es/99e93733-b4ef-4c41-860a-9b36bff32e42
+- 2 FRNT / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/ab0827e5-06c6-407f-b705-eec519cca740 → FRNT / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.es/791bc15e-be8a-44b2-8ebf-125cd85a9240
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51IbjF+bfaL.jpg → SIDE / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/8909a19f-fa19-4c69-8064-c83f66a011cf
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 6 PT02 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 7 PT03 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 8 PT04 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 9 PT05 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 10 PT06 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 11 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41DFwa9RaPL.jpg：无变化
+- 12 PT07 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 14:09:08
+监听端口：9228
+关键词：845-530V00GY
+sku：845-530V00GY
+asin：845-530V00GY
+country：西班牙
+market：西班牙
+图片：01.jpg → 第 01 张，页面位置 MAIN
+结果：成功
+各框变化：
+- 1 MAIN / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51za7CBzxzL.jpg → MAIN / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/f7597dba-7ee6-4645-927e-9a024dca4bb7
+- 2 FRNT / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/31OsgfjrFuL.jpg：无变化
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51IbjF+bfaL.jpg：无变化
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 6 PT02 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 7 PT03 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 8 PT04 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 9 PT05 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 10 PT06 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 11 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41DFwa9RaPL.jpg：无变化
+- 12 PT07 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 14:09:14
+监听端口：9228
+关键词：845-530V00GY
+sku：845-530V00GY
+asin：845-530V00GY
+country：西班牙
+market：西班牙
+图片：02.jpg → 第 02 张，页面位置 FRNT
+结果：成功
+各框变化：
+- 1 MAIN / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/f7597dba-7ee6-4645-927e-9a024dca4bb7 → MAIN / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/1e197ad0-7abb-4dad-be59-17d5a98ad1cb
+- 2 FRNT / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/31OsgfjrFuL.jpg → FRNT / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/9c830f42-fd85-49c2-a500-fdd87bc88247
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51IbjF+bfaL.jpg：无变化
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 6 PT02 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 7 PT03 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 8 PT04 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 9 PT05 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 10 PT06 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 11 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41DFwa9RaPL.jpg：无变化
+- 12 PT07 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 14:09:19
+监听端口：9228
+关键词：845-530V00GY
+sku：845-530V00GY
+asin：845-530V00GY
+country：西班牙
+market：西班牙
+图片：03.jpg → 第 03 张，页面位置 SIDE
+结果：成功
+各框变化：
+- 1 MAIN / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/1e197ad0-7abb-4dad-be59-17d5a98ad1cb → MAIN / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.es/4e9fa9a6-a8c5-4ca3-a2a5-ea793f24fe9a
+- 2 FRNT / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/9c830f42-fd85-49c2-a500-fdd87bc88247 → FRNT / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.es/6501e4ef-cf22-483b-81d3-5aa0dae2c04c
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51IbjF+bfaL.jpg → SIDE / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/729d5b79-3af2-4dc9-a502-dd7e7f76dcdf
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 6 PT02 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 7 PT03 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 8 PT04 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 9 PT05 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 10 PT06 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 11 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41DFwa9RaPL.jpg：无变化
+- 12 PT07 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 14:16:53
+监听端口：9228
+关键词：845-530V00GY
+sku：845-530V00GY
+asin：845-530V00GY
+country：西班牙
+market：西班牙
+图片：01.jpg → 第 01 张，页面位置 MAIN
+结果：成功
+各框变化：
+- 1 MAIN / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51za7CBzxzL.jpg → MAIN / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/ba86517b-c167-4c48-bdd3-ece9cfa9ff83
+- 2 FRNT / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/31OsgfjrFuL.jpg：无变化
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51IbjF+bfaL.jpg：无变化
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 6 PT02 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 7 PT03 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 8 PT04 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 9 PT05 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 10 PT06 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 11 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41DFwa9RaPL.jpg：无变化
+- 12 PT07 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 14:17:00
+监听端口：9228
+关键词：845-530V00GY
+sku：845-530V00GY
+asin：845-530V00GY
+country：西班牙
+market：西班牙
+图片：02.jpg → 第 02 张，页面位置 FRNT
+结果：成功
+各框变化：
+- 1 MAIN / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/ba86517b-c167-4c48-bdd3-ece9cfa9ff83 → MAIN / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.es/dc968aef-5578-4cdb-8a26-85345a633166
+- 2 FRNT / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/31OsgfjrFuL.jpg → FRNT / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/26ec1033-317d-44d1-afb5-4fa8afe39956
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51IbjF+bfaL.jpg：无变化
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 6 PT02 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 7 PT03 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 8 PT04 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 9 PT05 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 10 PT06 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 11 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41DFwa9RaPL.jpg：无变化
+- 12 PT07 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 14:17:06
+监听端口：9228
+关键词：845-530V00GY
+sku：845-530V00GY
+asin：845-530V00GY
+country：西班牙
+market：西班牙
+图片：03.jpg → 第 03 张，页面位置 SIDE
+结果：成功
+各框变化：
+- 1 MAIN / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.es/dc968aef-5578-4cdb-8a26-85345a633166 → MAIN / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.es/737dc60a-0e45-4f94-ac6a-76c4f75ab7e5
+- 2 FRNT / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/26ec1033-317d-44d1-afb5-4fa8afe39956 → FRNT / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.es/27091a8c-bd80-4253-9371-da15cb7e2b86
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51IbjF+bfaL.jpg → SIDE / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/6a8b0f89-dcc4-4d83-9607-cc7b685d7748
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 6 PT02 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 7 PT03 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 8 PT04 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 9 PT05 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 10 PT06 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 11 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41DFwa9RaPL.jpg：无变化
+- 12 PT07 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 14:21:09
+监听端口：9228
+关键词：845-530V00GY
+sku：845-530V00GY
+asin：845-530V00GY
+country：西班牙
+market：西班牙
+图片：01.jpg → 第 01 张，页面位置 MAIN
+结果：成功
+各框变化：
+- 1 MAIN / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51za7CBzxzL.jpg → MAIN / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/078c2489-7e95-491d-b06e-9d5d575af031
+- 2 FRNT / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/31OsgfjrFuL.jpg：无变化
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51IbjF+bfaL.jpg：无变化
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 6 PT02 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 7 PT03 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 8 PT04 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 9 PT05 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 10 PT06 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 11 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41DFwa9RaPL.jpg：无变化
+- 12 PT07 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 14:21:15
+监听端口：9228
+关键词：845-530V00GY
+sku：845-530V00GY
+asin：845-530V00GY
+country：西班牙
+market：西班牙
+图片：02.jpg → 第 02 张，页面位置 FRNT
+结果：成功
+各框变化：
+- 1 MAIN / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/078c2489-7e95-491d-b06e-9d5d575af031 → MAIN / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.es/542466e5-ae70-465c-903c-383883a09e60
+- 2 FRNT / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/31OsgfjrFuL.jpg → FRNT / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/4c38fd77-7457-4afd-94aa-1dbaf6aab336
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51IbjF+bfaL.jpg：无变化
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 6 PT02 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 7 PT03 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 8 PT04 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 9 PT05 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 10 PT06 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 11 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41DFwa9RaPL.jpg：无变化
+- 12 PT07 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 14:21:21
+监听端口：9228
+关键词：845-530V00GY
+sku：845-530V00GY
+asin：845-530V00GY
+country：西班牙
+market：西班牙
+图片：03.jpg → 第 03 张，页面位置 SIDE
+结果：成功
+各框变化：
+- 1 MAIN / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.es/542466e5-ae70-465c-903c-383883a09e60 → MAIN / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.es/e43afd1b-1489-4ae5-a436-75b9777446ff
+- 2 FRNT / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/4c38fd77-7457-4afd-94aa-1dbaf6aab336 → FRNT / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.es/dfb7677c-026b-419c-ab99-4246a7119448
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51IbjF+bfaL.jpg → SIDE / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/d28d15f1-d53f-4e95-a6c3-f92b013cefc0
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 6 PT02 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 7 PT03 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 8 PT04 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 9 PT05 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 10 PT06 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 11 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41DFwa9RaPL.jpg：无变化
+- 12 PT07 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 14:22:40
+监听端口：9227
+关键词：A70-AAIVJJMX-GM
+sku：A70-AAIVJJMX-GM
+asin：B0HGX1YN5P
+country：意大利
+market：意大利
+图片：01.jpg → 第 01 张，页面位置 MAIN
+结果：失败 MAIN位置原有图片无法删除，未上传新图
+各框变化：
+- 1 MAIN / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51c9yvLk+QL.jpg：无变化
+- 2 FRNT / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/411bdZHhlTL.jpg：无变化
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51+0i0WaqTL.jpg：无变化
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/417xRV9updL.jpg：无变化
+- 6 PT02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51LKmpm8+cL.jpg：无变化
+- 7 PT03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51kvrrbNRyL.jpg：无变化
+- 8 PT04 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51EWnHMSJxL.jpg：无变化
+- 9 PT05 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51Olq1MY4DL.jpg：无变化
+- 10 PT06 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51SH0AukEeL.jpg：无变化
+- 11 PT07 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51KrBsFlZTL.jpg：无变化
+- 12 PT08 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51KpewVnQvL.jpg：无变化
+- 13 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41EKjrzje3L.jpg：无变化
+- 14 PS02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41ezknlh1FL.jpg：无变化
+- 15 PS03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/71yB-OLVArL.jpg：无变化
+- 16 PT09 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 14:22:40
+监听端口：9227
+关键词：A70-AAIVJJMX-GM
+sku：A70-AAIVJJMX-GM
+asin：B0HGX1YN5P
+country：意大利
+market：意大利
+图片：02.jpg → 第 02 张，页面位置 FRNT
+结果：失败 FRNT位置原有图片无法删除，未上传新图
+各框变化：
+- 1 MAIN / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51c9yvLk+QL.jpg：无变化
+- 2 FRNT / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/411bdZHhlTL.jpg：无变化
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51+0i0WaqTL.jpg：无变化
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/417xRV9updL.jpg：无变化
+- 6 PT02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51LKmpm8+cL.jpg：无变化
+- 7 PT03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51kvrrbNRyL.jpg：无变化
+- 8 PT04 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51EWnHMSJxL.jpg：无变化
+- 9 PT05 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51Olq1MY4DL.jpg：无变化
+- 10 PT06 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51SH0AukEeL.jpg：无变化
+- 11 PT07 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51KrBsFlZTL.jpg：无变化
+- 12 PT08 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51KpewVnQvL.jpg：无变化
+- 13 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41EKjrzje3L.jpg：无变化
+- 14 PS02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41ezknlh1FL.jpg：无变化
+- 15 PS03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/71yB-OLVArL.jpg：无变化
+- 16 PT09 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 14:22:40
+监听端口：9227
+关键词：A70-AAIVJJMX-GM
+sku：A70-AAIVJJMX-GM
+asin：B0HGX1YN5P
+country：意大利
+market：意大利
+图片：03.jpg → 第 03 张，页面位置 SIDE
+结果：失败 SIDE位置原有图片无法删除，未上传新图
+各框变化：
+- 1 MAIN / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51c9yvLk+QL.jpg：无变化
+- 2 FRNT / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/411bdZHhlTL.jpg：无变化
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51+0i0WaqTL.jpg：无变化
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/417xRV9updL.jpg：无变化
+- 6 PT02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51LKmpm8+cL.jpg：无变化
+- 7 PT03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51kvrrbNRyL.jpg：无变化
+- 8 PT04 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51EWnHMSJxL.jpg：无变化
+- 9 PT05 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51Olq1MY4DL.jpg：无变化
+- 10 PT06 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51SH0AukEeL.jpg：无变化
+- 11 PT07 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51KrBsFlZTL.jpg：无变化
+- 12 PT08 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51KpewVnQvL.jpg：无变化
+- 13 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41EKjrzje3L.jpg：无变化
+- 14 PS02 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41ezknlh1FL.jpg：无变化
+- 15 PS03 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/71yB-OLVArL.jpg：无变化
+- 16 PT09 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 14:35:04
+监听端口：9228
+关键词：845-530V00GY
+sku：845-530V00GY
+asin：845-530V00GY
+country：西班牙
+market：西班牙
+图片：01.jpg → 第 01 张，页面位置 MAIN
+结果：成功
+各框变化：
+- 1 MAIN / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51za7CBzxzL.jpg → MAIN / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/c3243b67-b6e0-4a79-a0bc-770da549463a
+- 2 FRNT / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/31OsgfjrFuL.jpg：无变化
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51IbjF+bfaL.jpg：无变化
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 6 PT02 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 7 PT03 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 8 PT04 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 9 PT05 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 10 PT06 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 11 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41DFwa9RaPL.jpg：无变化
+- 12 PT07 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 14:35:10
+监听端口：9228
+关键词：845-530V00GY
+sku：845-530V00GY
+asin：845-530V00GY
+country：西班牙
+market：西班牙
+图片：02.jpg → 第 02 张，页面位置 FRNT
+结果：成功
+各框变化：
+- 1 MAIN / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/c3243b67-b6e0-4a79-a0bc-770da549463a → MAIN / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/b0850a0a-e3e5-4db7-8f1b-03638a74cfd4
+- 2 FRNT / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/31OsgfjrFuL.jpg → FRNT / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/f15e7fb9-65ed-4cd4-9bc1-27eeb61370e5
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51IbjF+bfaL.jpg：无变化
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 6 PT02 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 7 PT03 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 8 PT04 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 9 PT05 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 10 PT06 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 11 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41DFwa9RaPL.jpg：无变化
+- 12 PT07 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+【记录时间】：2026-10-16 14:35:17
+监听端口：9228
+关键词：845-530V00GY
+sku：845-530V00GY
+asin：845-530V00GY
+country：西班牙
+market：西班牙
+图片：03.jpg → 第 03 张，页面位置 SIDE
+结果：成功
+各框变化：
+- 1 MAIN / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/b0850a0a-e3e5-4db7-8f1b-03638a74cfd4 → MAIN / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.es/97f9728c-0240-4197-8faf-caad76e61088
+- 2 FRNT / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/f15e7fb9-65ed-4cd4-9bc1-27eeb61370e5 → FRNT / variant-label / newly-uploaded-image / 实位 / 审核中 / blob:https://sellercentral.amazon.es/4c22f878-2eb7-439e-8e31-f5fea209b212
+- 3 SIDE / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/51IbjF+bfaL.jpg → SIDE / variant-label / newly-uploaded-image / 实位 / 无审核标记 / blob:https://sellercentral.amazon.es/e8d8f690-3d26-4689-9944-3c2aa1eb84f5
+- 4 BACK / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 5 PT01 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 6 PT02 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 7 PT03 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 8 PT04 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 9 PT05 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 10 PT06 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化
+- 11 PS01 / variant-label / url-image / 实位 / 无审核标记 / https://m.media-amazon.com/images/I/41DFwa9RaPL.jpg：无变化
+- 12 PT07 / variant-dropdown / 无图 / 虚线 / 无审核标记 / 无地址：无变化

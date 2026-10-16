@@ -1,14 +1,11 @@
-"""程序入口。先打开卖家后台，再选择 Excel，选中后读取并上传。"""
+"""程序入口。打开账号与上传记录窗口，并启动欧洲五国 Chrome。"""
 
 import sys
 from pathlib import Path
 
-from app.browser import launch_chrome
 from app.config_loader import load_config
-from app.file_pick import explain_read_failure
-from app.import_ui import ImportWindow, _report_text
+from app.hub_ui import HubWindow
 from app.logging_setup import setup_logging
-from app.pipeline import run
 
 
 def project_root():
@@ -31,28 +28,11 @@ def database_path(config):
 
 
 def main():
-    """先拉起独立 Chrome 打开卖家后台，再打开选择窗口。选中后读取并上传。"""
+    """打开账号管理窗口。窗口里会启动英国、德国、法国、意大利、西班牙。"""
     config = load_config(ROOT / "config" / "settings.json")
     setup_logging(config.get("log_dir"), config.get("log_level"))
-    country = str((config.get("browser") or {}).get("startup_country") or "").strip()
-    if not country:
-        print("配置里没有 browser.startup_country，无法先打开网页。", flush=True)
-        return
-    try:
-        launch_chrome(country)
-    except Exception as exc:
-        print(str(exc), flush=True)
-        return
-    window = ImportWindow(database_path(config), ROOT / "picture_log.md")
+    window = HubWindow(database_path(config), ROOT / "picture_log.md", ROOT / "aplus_log.md")
     window.run()
-    if window.selected_path is None:
-        return
-    try:
-        report = run(window.selected_path, window.database_path, window.log_path)
-    except Exception as exc:
-        print(explain_read_failure(exc, window.selected_path), flush=True)
-        return
-    print(_report_text(report), flush=True)
 
 
 if __name__ == "__main__":

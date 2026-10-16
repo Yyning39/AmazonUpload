@@ -39,9 +39,9 @@ DASHED_SLOT_SELECTOR = '[data-testid="image-slot-dashed"]'
 PENDING_SELECTOR = '[class*="status-pending"]'
 # 有图格子里的垃圾桶。data-capture 是 variant-delete-button，无文字。
 DELETE_ICON_SELECTOR = '[data-testid="delete-icon"]'
-# 点垃圾桶后出现的确认框。框内「删除」按钮没有自己的 data-testid。
+# 点垃圾桶后出现的确认框。确定按钮用 data-capture，不看按钮文字。
 DELETE_CONFIRM_MODAL_SELECTOR = '[data-testid="delete-confirmation-modal"]'
-DELETE_CONFIRM_BUTTON_TEXT = "删除"
+DELETE_CONFIRM_BUTTON_SELECTOR = '[data-capture="variant-delete-confirmation-submit"]'
 
 IMAGE_EXTENSIONS = {".gif", ".pjp", ".jfif", ".jpe", ".pjpeg", ".jpeg", ".jpg", ".png"}
 
@@ -89,7 +89,7 @@ def _element_state_js(selector):
     )
 
 
-def upload_images(session, keyword, country, directory, timeout=30, log_path=None, log_context=None):
+def upload_images(session, keyword, country, directory, timeout=30, log_path=None, log_context=None, on_progress=None):
     """搜索关键词，并把目录里的图片逐位上传。
 
     directory 是 picture/<国家代码>/<sku>/<站点代码>。
@@ -101,9 +101,13 @@ def upload_images(session, keyword, country, directory, timeout=30, log_path=Non
     if not text:
         raise NeedsManual("关键词为空")
     directory = Path(directory)
+    if on_progress:
+        on_progress("搜索商品")
     _search(session, text, timeout)
+    if on_progress:
+        on_progress("打开国家模块")
     _reveal_country(session, code, timeout)
-    return _upload_slots(session, code, directory, timeout, log_path, log_context)
+    return _upload_slots(session, code, directory, timeout, log_path, log_context, on_progress)
 
 
 def _search(session, keyword, timeout):
@@ -153,7 +157,7 @@ def _reveal_country(session, country, timeout):
     )
 
 
-def _upload_slots(session, country, directory, timeout, log_path=None, log_context=None):
+def _upload_slots(session, country, directory, timeout, log_path=None, log_context=None, on_progress=None):
     """只处理文件夹里有的数字图片。01 是第一个框，缺号不前移。
 
     没有对应文件的格子保持原样。有文件时，这一格已有图就先删再传，没有图就直接传。
@@ -168,6 +172,8 @@ def _upload_slots(session, country, directory, timeout, log_path=None, log_conte
     for number, path in images:
         file_stem = f"{number:02d}"
         page_slot = slots[number - 1] if 1 <= number <= len(slots) else ""
+        if on_progress:
+            on_progress(f"上传 {file_stem}")
         if not page_slot:
             item = _result(file_stem, "", "失败", f"{file_stem}位置图片待审核", path)
         else:
@@ -177,6 +183,8 @@ def _upload_slots(session, country, directory, timeout, log_path=None, log_conte
             _append_picture_log(log_path, log_context, item, previous, current)
         previous = current
         results.append(item)
+        if on_progress:
+            on_progress(f"{file_stem} {item.get('status', '')}")
     return results
 
 
@@ -334,6 +342,8 @@ def _append_picture_log(path, context, item, before, after):
         f"【记录时间】：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"监听端口：{context.get('port', '')}",
         f"关键词：{context.get('keyword', '')}",
+        f"sku：{context.get('sku', '')}",
+        f"asin：{context.get('asin', '')}",
         f"country：{context.get('country', '')}",
         f"market：{context.get('market', '')}",
         f"图片：{Path(item.get('file') or '').name} → 第 {item.get('slot', '')} 张，页面位置 {item.get('page_slot') or '无'}",
@@ -517,12 +527,8 @@ def _search_state_js(keyword):
       const list = document.querySelector({selector});
       const cards = list ? [...list.children] : [];
       const lines = ((cards[0]?.innerText) || '').split(/\\n/).map(item => item.trim()).filter(Boolean);
-      const ids = [];
-      for (let i = 0; i < lines.length; i += 1) {{
-        const name = lines[i].toUpperCase();
-        if (name === 'ASIN' || name === 'SKU') ids.push((lines[i + 1] || '').trim());
-      }}
-      const matched = ids.some(item => item.toUpperCase() === {wanted});
+      const ids = lines.filter(item => item.toUpperCase() === {wanted});
+      const matched = ids.length > 0;
       return {{ok: ready && cards.length === 1 && matched, count: cards.length, matched, ids}};
     }})()"""
 
@@ -626,24 +632,24 @@ def _visible_confirm_modals_js():
 
 
 def _delete_confirm_ready_js(page_slot):
-    """恰好一个确认框，并且文字里有这一格的位置名。"""
-    slot = json.dumps(page_slot)
+    """恰好一个可见确认框，并且里面恰好一颗确定按钮。不看按钮文字。"""
+    del page_slot
+    button = json.dumps(DELETE_CONFIRM_BUTTON_SELECTOR)
     return f"""(() => {{
       const modals = {_visible_confirm_modals_js()};
       if (modals.length !== 1) return false;
-      return (modals[0].innerText || '').includes({slot});
+      return modals[0].querySelectorAll({button}).length === 1;
     }})()"""
 
 
 def _click_delete_confirm_js(page_slot):
-    """只点确认框里文字为「删除」的那一个按钮。"""
-    slot = json.dumps(page_slot)
-    label = json.dumps(DELETE_CONFIRM_BUTTON_TEXT)
+    """只点确认框里 data-capture 为 variant-delete-confirmation-submit 的那一颗。"""
+    del page_slot
+    button = json.dumps(DELETE_CONFIRM_BUTTON_SELECTOR)
     return f"""(() => {{
       const modals = {_visible_confirm_modals_js()};
       if (modals.length !== 1) return false;
-      if (!(modals[0].innerText || '').includes({slot})) return false;
-      const buttons = [...modals[0].querySelectorAll('button')].filter(el => (el.innerText || '').trim() === {label});
+      const buttons = [...modals[0].querySelectorAll({button})];
       if (buttons.length !== 1) return false;
       buttons[0].click();
       return true;
