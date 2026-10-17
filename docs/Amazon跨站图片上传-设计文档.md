@@ -1,24 +1,28 @@
 # Amazon 跨站图片上传 设计文档
 
-本文描述本机程序 **Amazon 跨站图片上传**（仓库 `amz-piggyback-im`）的目标、与 CL 的分工、两条后台操作，以及任务、重试、失败通知和日志。后台点击顺序以[亚马逊后台上传站点图片+提交应用 A+](https://aosom.feishu.cn/wiki/KXnEwlzFgijD4pkhpHacUG0GnTh)为准。实现进度以代码为准，见第 11 节。
+本文描述本机程序 **Amazon 跨站图片上传**（仓库 `amz-piggyback-im`）的目标、与 CL 的分工、两条后台操作，以及任务、重试、告警和日志。后台点击顺序以[亚马逊后台上传站点图片+提交应用 A+](https://aosom.feishu.cn/wiki/KXnEwlzFgijD4pkhpHacUG0GnTh)为准。实现进度以代码为准，见第 11 节。
+
+**本期登录**：人工保证各国 Chrome 已登录卖家后台。半自动重登见 **附录 A（TODO，未实施）**。
 
 ## 1. 目标
 
-在 Windows 本机，用已登录的 Chrome，按国家完成两件事：
+在 Windows 本机，用已登录的 Chrome，按**跨站国别**完成两件事：
 
 1. **传站点图**：把上游给出的图片上传到 Seller Central 图片管理页。
 2. **A+ 提交应用**：找到类型为 EBC、状态为草稿的 A+，确认已应用 ASIN 后提交批准。
 
-CL 负责欧洲五国跟卖上架，以及在规定时机触发本程序。本程序不实现上架，只执行上传和提交，并把站点图结果交回 CL。
+CL 负责欧洲五国跟卖上架，以及在规定时机触发本程序。本程序不实现上架，只执行上传和提交，并把结果写回 CL 任务行。程序能力覆盖七国（含 US/CA）；CL 现阶段主要投欧洲五国。
 
 ## 2. 范围
 
 | 侧 | 做 | 不做 |
 |---|---|---|
-| CL | 欧洲五国跟卖上架（与北美同一套逻辑）；在两个时机触发本程序；在上架页记录站点图上传是否成功 | 不操作 Seller Central 页面 |
-| 本程序 | 接收任务、下载图片、按国家上传站点图、提交 A+、落库异常、重试、记日志、把最终失败交给 CL | 不创建 Listing，不删除后台图片，不上传 FRONT / SIDE / BACK |
+| CL | 欧洲五国跟卖上架（与北美同一套逻辑）；在两个时机插入任务行；按任务行终态展示结果 | 不操作 Seller Central 页面 |
+| 本程序 | 轮询领取、下载图片、按跨站国别上传站点图、提交 A+、本机重试、记日志、终态写回 CL；登录失效时暂停该国并飞书告警 | 不创建 Listing，不删除后台图片，不上传 FRONT / SIDE / BACK；本期不做半自动重登 |
 
 国家站点与现有调试端口一致：US `9222`、CA `9223`、UK `9224`、DE `9225`、FR `9226`、IT `9227`、ES `9228`。欧洲五国指 UK、DE、FR、IT、ES。
+
+`错误边界.md` 暂时保留作历史参考；**与本文冲突时以本文为准**。
 
 ## 3. 运行形态
 
@@ -26,216 +30,251 @@ CL 负责欧洲五国跟卖上架，以及在规定时机触发本程序。本�
 
 - 每个国家使用独立 Chrome 用户目录和调试端口，调试地址只绑定 `127.0.0.1`。
 - 浏览器控制只用 Chrome DevTools Protocol。上传用 `DOM.setFileInputFiles`，不弹出系统文件框。
-- Chrome 与本程序必须在同一台机器。Seller Central 登录、验证码留在该 Chrome 里人工完成。
-- 正式通道是 CL 任务表。CL 插入一行，本机轮询领取，终态写回同一行。CL 服务器不连接本机 `127.0.0.1`。任务正文以第 5 节为准。
+- Chrome 与本程序必须在同一台机器。
+- **本期**：Seller Central 登录与验证码由人工在该 Chrome 中完成。检测到登录墙或登录失败时：不执行该国任务，发飞书告警，每 30 分钟自动监控直至恢复（见第 9.3 节）。半自动重登见附录 A。
+- 正式通道是 CL 表 `ca_pid_amz_cross_site_task_all`。CL 插入一行，本机轮询领取，终态写回同一行。CL 服务器不连接本机 `127.0.0.1`。
+- 库连接信息放在本机配置，不写入仓库。未经点名，不写正式站库。
 
 Excel 选择/拖入只保留为联调入口，不作为自动触发通道。
 
 ## 4. 总流程
 
 ```text
-CL 在触发点插入任务表一行（待处理）
-  → 本机轮询并领取（改为处理中）
+CL 在触发点 INSERT 一行（TASK_STATUS = New，ACTIONS / IMAGES 等已填）
+  → 本机轮询 New，CAS 领取为 Process，刷新 UPDATED_DATE
+  → 入队校验（空字段等）不通过 → Error + ERROR_*，结束
   → 复制到本机 SQLite 后执行
-  → 按国家连接已登录 Chrome
-  → 传站点图（需要时先下载图片）
-  → 提交 A+（仅「Listed(A+已上传)」触发）
-  → 更新同一行：成功，或失败并带上 error_code、error_msg
+  → 按 CROSS_COUNTRY 连接已登录 Chrome
+  → 传站点图（按 IMAGES 下载完整 URL）
+  → 若 ACTIONS 含 aplus：提交 A+
+  → 成功 → Confirm，清空 ERROR_*
+  → 可重试失败 → CL 保持 Process，本机待重试；耗尽或不可重试 → Error
 ```
 
 一次任务可以只做站点图，也可以先站点图、再 A+。A+ 不依赖本次站点图已经通过亚马逊审核。亚马逊审核是后台异步结果，RPA 不等待「已显示」或前台可见。
 
 ## 5. 任务
 
-### 5.1 与 CL 的通道
+### 5.1 CL 表 `ca_pid_amz_cross_site_task_all`
 
-正式通道采用 **CL 任务表轮询**。做法对齐渠道视频工具里已经跑通的模式：执行过程以本机 SQLite 为准，终态写回来源。视频工具的来源是原 Excel 的结果列；这里的来源换成 CL 任务表的同一行。
+正式通道采用 **CL 任务表轮询**。执行过程以本机 SQLite 为准，终态写回该表同一行。
 
-CL 在第 5.2 节的两个时机 `INSERT` 一行，状态为 `待处理`。本机按 `poll_interval_seconds`（默认 30 秒）查询 `待处理` 行。领取时执行：
-
-```sql
-UPDATE 任务表
-SET status = '处理中', worker_id = :本机标识, updated_at = 当前时间
-WHERE task_id = :id AND status = '待处理'
-```
-
-更新行数为 1 才算领到，避免两台电脑抢同一行。领到后把该行复制进本机 SQLite，再打开浏览器。
-
-执行结束时 `UPDATE` 同一行，至少写回：`status`、`attempt`、`error_code`、`error_msg`、`site_image_status`、`updated_at`。可重试的失败在次数用尽前保持 `处理中`，并把最近一次错误写在这行上；达到上限或遇到不可重试错误时改为 `失败`。成功改为 `成功`，并清空 `error_code`、`error_msg`。不再另开一条失败消息。
-
-`处理中` 且 `updated_at` 超过 `stale_processing_seconds`（默认 30 分钟）的行，由原 `worker_id` 在下次启动时改回 `待处理`。其他机器不抢占尚未过期的处理中任务。
-
-任务表列：
+#### 现有列（以库表为准）
 
 | 列 | 含义 |
 |---|---|
-| `task_id` | CL 任务号，唯一 |
-| `sku` / `asin` / `country` | 与第 5.3 节相同 |
-| `trigger` | `listed_aplus` 或 `image_update` |
-| `actions` | JSON 数组 |
-| `images` | JSON 数组 |
-| `status` | `待处理` / `处理中` / `成功` / `失败` |
-| `attempt` | 本机已执行次数 |
-| `error_code` / `error_msg` | 最近一次失败。成功时为空 |
-| `site_image_status` | `未执行` / `成功` / `失败` |
-| `worker_id` | 领取该行的本机标识 |
-| `updated_at` | 最后一次变更时间 |
+| `AMZ_CROSS_TASK_GUID` | 主键 |
+| `ORG_UNITS_GUID` | 国别 GUID（历史字段；**本机定位国家不依赖此列**） |
+| `CURRENT_SHOP_GUID` / `CURRENT_SHOP_NAME` | 当前跨站店铺 |
+| `SKU` / `ASIN` | 货号 / LISTED_ID |
+| `MAIN_SHOP_GUID` / `MAIN_SHOP_NAME` | 主站店铺 |
+| `TASK_ID` | 关联 `ca_pid_common_task_all.TASK_GUID`，唯一 |
+| `IMAGES` | 图片地址 JSON 数组（**完整 URL**） |
+| `ERROR_CODE` / `ERROR_MESSAGE` | 本机回写 |
+| `TASK_STATUS` | 见下；默认 `New` |
+| `ACTIONS` | JSON 数组字符串，**由 CL 写入**，本机只读 |
+| `CREATION_DATE` | 写入时间 |
 
-表所在库和表名由 CL 落库时确定。本机只按上述列读写。连接信息放在本机配置，不写入仓库。未经点名，不写正式站库。
+#### CL 需增补的列
 
-上架页的「站点图上传状态」读 `site_image_status`。CL 也可以在行变成 `成功` 或 `失败` 时，把该值同步到帖子字段。
+| 列 | 含义 |
+|---|---|
+| `MAIN_COUNTRY` | 主站国别代码：`US` `CA` `UK` `DE` `FR` `IT` `ES` |
+| `CROSS_COUNTRY` | 跨站国别代码（同上）。**本机只认此二字段定位跨站与 Chrome**，不认 `ORG_UNITS_GUID` |
+| `UPDATED_DATE` | 最后更新时间。领取、心跳、回写时刷新；用于僵尸 `Process` 回收 |
 
-未采用的通道：
+#### `TASK_STATUS`
 
-- 共享 Excel：文件被打开就写不回，触发也不实时。只保留现有导入窗口做联调。
-- CL 拉取/回写 HTTP：列与上面相同。仅当本机不能持有数据库账号时，再改成 CL 提供拉取和回写接口，本机不直连库。
-- CL 调用本机 HTTP：店铺电脑的 `127.0.0.1` 从 CL 服务器不可达。
+| 状态 | 含义 |
+|---|---|
+| `New` | 可领取 |
+| `Process` | 已领取，执行中（含本机可重试等待期间） |
+| `Confirm` | 整单成功（`ACTIONS` 内步骤均成功） |
+| `Error` | 终态失败（不可重试，或本机重试耗尽） |
+
+领取（防重复消费）：
+
+```sql
+UPDATE ca_pid_amz_cross_site_task_all
+SET TASK_STATUS = 'Process', UPDATED_DATE = NOW()
+WHERE AMZ_CROSS_TASK_GUID = :id AND TASK_STATUS = 'New'
+```
+
+更新行数为 1 才算领到。领到后复制进本机 SQLite，再打开浏览器。
+
+终态回写：
+
+- 成功：`TASK_STATUS = Confirm`，清空 `ERROR_CODE`、`ERROR_MESSAGE`，刷新 `UPDATED_DATE`。
+- 终态失败：`TASK_STATUS = Error`，写入 `ERROR_CODE`、`ERROR_MESSAGE`，刷新 `UPDATED_DATE`。
+- 可重试中：CL **保持 `Process`**，可把最近一次错误写在 `ERROR_*` 上；本机状态为 `待重试`。不改回 `New`，避免被其他实例抢走。
+
+僵尸 `Process` 回收（与登录监控同节奏，默认 **30 分钟**）：
+
+```sql
+UPDATE ca_pid_amz_cross_site_task_all
+SET TASK_STATUS = 'New', UPDATED_DATE = NOW()
+WHERE TASK_STATUS = 'Process'
+  AND UPDATED_DATE < NOW() - INTERVAL 30 MINUTE
+```
+
+长任务（多图上传等）执行中应定期刷新 `UPDATED_DATE`（心跳），避免误回收导致双实例同跑。配置项：`stale_processing_seconds`（默认 1800）。
+
+本机不写 `ACTIONS`。不设 CL 侧 `trigger`、`site_image_status`、`attempt`、`worker_id` 列；重试次数与分步状态只在本机 SQLite。上架页若需展示站点图结果，由 CL 根据本行 `Confirm` / `Error` 及 `ERROR_*` 自行同步，本程序不再单独回写站点图状态字段。
+
+未采用的通道：共享 Excel（仅联调）、CL HTTP 拉取/回写（本机不能持库账号时再议）、CL 调本机 HTTP。
 
 ### 5.2 CL 何时触发
 
-| 触发 | 条件 | 本程序执行 |
+| 触发 | 条件 | CL 写入的 `ACTIONS` |
 |---|---|---|
-| 上架完成 | 帖子状态变为 **Listed(A+已上传)** | 传站点图，然后 A+ 提交应用 |
-| 图片更新 | 正常图片或 AI 打标图片发生更新 | 只传站点图 |
+| 上架完成 | 帖子状态变为 **Listed(A+已上传)** | `["site_images", "aplus"]` |
+| 图片更新 | 正常图片或 AI 打标图片发生更新 | `["site_images"]` |
 
-两种触发使用同一任务结构。用 `actions` 区分要做哪几步，避免靠帖子状态在本程序里再猜一次。
+本机只读 `ACTIONS` 决定步骤，不根据帖子状态猜测。
 
-### 5.3 任务正文
+### 5.3 任务字段规则
 
-```json
-{
-  "taskId": "CL 侧任务号",
-  "sku": "SKU",
-  "asin": "ASIN",
-  "country": "ES",
-  "trigger": "listed_aplus",
-  "actions": ["site_images", "aplus"],
-  "images": [
-    "https://img-cl.aosomcdn.com/对象名.jpg"
-  ]
-}
-```
+逻辑字段与表列对应：`TASK_ID`、`SKU`、`ASIN`、`MAIN_COUNTRY`、`CROSS_COUNTRY`、`ACTIONS`、`IMAGES`。
 
 | 字段 | 规则 |
 |---|---|
-| `taskId` | CL 任务号。重试、日志、失败通知都带它 |
-| `sku` / `asin` | 至少有一个非空。搜索关键词：有 SKU 用 SKU，否则用 ASIN |
-| `country` | `US` `CA` `UK` `DE` `FR` `IT` `ES`，或中文国名（美国、加拿大、英国、德国、法国、意大利、西班牙） |
-| `trigger` | `listed_aplus` 或 `image_update`。只用于日志和回写，不单独决定步骤 |
-| `actions` | `listed_aplus` 必须是 `["site_images", "aplus"]`；`image_update` 必须是 `["site_images"]` |
-| `images` | 有 `site_images` 时必填，按展示顺序排列。没有 `site_images` 时可省略 |
+| `TASK_ID` / `AMZ_CROSS_TASK_GUID` | 日志与告警**两者都打** |
+| `SKU` / `ASIN` | 搜索关键词：有 SKU 用 SKU，否则用 ASIN。二者都空 → 入队失败 |
+| `CROSS_COUNTRY` | 连接该国 Chrome、打开该国 Seller Central。无法识别 → 入队失败 |
+| `MAIN_COUNTRY` | 与跨站定位一并由 CL 填写；本机用于校验/日志，连浏览器以 `CROSS_COUNTRY` 为准 |
+| `ACTIONS` | CL 写入。含 `site_images` 时必须有有效 `IMAGES`；含 `aplus` 时必须有非空 `ASIN` |
+| `IMAGES` | JSON 数组，**每一项为完整 `http(s)` URL**（参考既有 CDN 示例）。按展示顺序：`[0]`→MAIN，`[1]`→PT01，以此类推 |
 
-`images` 的每一项是 CDN 地址或对象名。
+`IMAGES` 示例：
 
-- 以 `http://` 或 `https://` 开头：按该地址下载。
-- 否则拼到 `https://img-cl.aosomcdn.com/` 后面再下载。
-- 需求里的 `["1.jpg","2.jpg"]` 是顺序示意。实际上游应传示例这种对象名或完整 URL，例如 `https://img-cl.aosomcdn.com/icxjbZdPQoOz4_HddQDT4BP0guvZHi9Lye2ZjuJO9TEaosomicxjbZdPQoOz4_HddQDT4BP0guvZHi9Lye2ZjuJO9TE.jpg`。
+```json
+[
+  "https://img-cl.aosomcdn.com/icxjbZdPQoOz4_HddQDT4BP0guvZHi9Lye2ZjuJO9TEaosomicxjbZdPQoOz4_HddQDT4BP0guvZHi9Lye2ZjuJO9TE.jpg"
+]
+```
 
-同一 `taskId` 再次入队时不新增一行，沿用原记录并重新执行未成功的步骤。
+同一 `TASK_ID` 再次变为可执行时不新增业务含义上的新任务：本机按 `TASK_ID` 合并，**已成功的站点图跳过，只重跑未成功步骤**（例如仅 `aplus`）。
 
-### 5.4 本机队列
+### 5.4 入队校验（不可重试，直接 `Error`）
 
-在现有 `data/queue.sqlite3` 上扩展，不再只用 Excel 的五个布尔列表达任务。
+不依赖上游「一定传对」；空值用专用 `ERROR_CODE`，不用笼统的 `TASK_INVALID`。
+
+| 情况 | ERROR_CODE |
+|---|---|
+| `TASK_ID` 为空 | `TASK_ID_EMPTY` |
+| `MAIN_COUNTRY` / `CROSS_COUNTRY` 无法识别为七国代码 | `COUNTRY_INVALID` |
+| `SKU`、`ASIN` 都空 | `SKU_ASIN_EMPTY` |
+| `ACTIONS` 含 `site_images` 且 `IMAGES` 缺省或空数组 | `IMG_EMPTY` |
+| `IMAGES` 某项为 null / 空串 / 纯空白 | `IMG_ITEM_EMPTY`（`ERROR_MESSAGE` 带下标） |
+| `IMAGES` 某项不是 `http://` 或 `https://` 开头 | `IMG_URL_INVALID` |
+| `ACTIONS` 含 `aplus` 且 `ASIN` 空 | `ASIN_EMPTY` |
+| `ACTIONS` 为空或无法解析为数组 | `ACTIONS_INVALID` |
+
+含 `aplus` 但缺 `ASIN`：**入队即拦截**，不先传站点图。
+
+### 5.5 本机队列
+
+在现有 `data/queue.sqlite3` 上扩展。
 
 `task` 保存当前态：
 
 | 列 | 含义 |
 |---|---|
 | `id` | 本机主键 |
-| `task_id` | CL 任务号，唯一 |
-| `sku` / `asin` / `country` | 与任务正文相同 |
-| `trigger` | 触发类型 |
-| `actions` | JSON 数组 |
-| `images` | JSON 数组，保留原始值 |
+| `task_id` | `TASK_ID`，唯一 |
+| `amz_cross_task_guid` | `AMZ_CROSS_TASK_GUID` |
+| `sku` / `asin` | 同 CL |
+| `main_country` / `cross_country` | 同 CL |
+| `actions` / `images` | JSON，保留原始值 |
 | `status` | 见下表 |
-| `attempt` | 已执行次数，从 1 开始 |
+| `attempt` | 已执行次数，从 1 开始（只在本机） |
 | `error_code` / `error_msg` | 最近一次失败 |
-| `site_image_status` | 站点图：`未执行` / `成功` / `失败` |
-| `aplus_status` | A+：`未执行` / `成功` / `失败` / `不适用` |
+| `site_image_status` | `未执行` / `成功` / `失败` |
+| `aplus_status` | `未执行` / `成功` / `失败` / `不适用` |
 | `created_at` / `updated_at` | 本机时间 |
 
-`task_attempt` 追加每次尝试，不覆盖历史：`task_id`、`attempt`、`action`（`site_images` 或 `aplus`）、`error_code`、`error_msg`、`detail`（该位置或该步骤的 JSON）、`created_at`。
+`task_attempt` 追加每次尝试：`task_id`、`attempt`、`action`（`site_images` 或 `aplus`）、`error_code`、`error_msg`、`detail`、`created_at`。
 
-任务状态：
-
-| status | 含义 |
+| 本机 status | 含义 |
 |---|---|
 | `待处理` | 已入队，尚未开始 |
-| `处理中` | 已占用，正在执行 |
-| `待重试` | 本次失败且未到上限，等待下一次 |
-| `成功` | `actions` 里的步骤都成功 |
-| `失败` | 不可重试，或重试达到 N 次仍失败 |
+| `处理中` | 正在执行 |
+| `待重试` | 本次失败且未到上限 |
+| `成功` | 对应 CL `Confirm` |
+| `失败` | 对应 CL `Error` |
+| `待人工` | 该国登录不可用，暂停（见第 9.3 节） |
 
-同一时间只跑一个任务。处理中的任务在进程退出后，下次启动改回 `待重试`，避免一直占着队列。
+同一时间只跑一个任务。进程退出时，本机 `处理中` 下次启动改为 `待重试`。CL 侧若仍为 `Process` 且未过期，由本机继续；若已被回收为 `New`，再 CAS 领取后按 `TASK_ID` 合并 attempt 与分步状态。
 
 ## 6. 传站点图
 
-页面路径：`https://<该国 Seller Central 域名>/imaging/manage`。
+按 `CROSS_COUNTRY` 打开：`https://<该国 Seller Central 域名>/imaging/manage`。
 
-操作顺序与后台说明一致：
+1. 直接打开 `/imaging/manage`，不点菜单。
+2. 搜索关键词并回车。结果必须恰好 1 个商品，且该行 SKU 或 ASIN 与关键词一致。
+3. 滚到国家模块 `ou-section-{CROSS_COUNTRY}`。
+4. 按 `IMAGES` 顺序逐位上传。
+5. 每一位看到上传成功标志才算成功；文件路径进入文件框不算成功。
 
-1. 打开该国 Seller Central，进入图片管理器（管理商品 → 管理图片 → 图片管理器）。程序直接打开 `/imaging/manage`，不点菜单。
-2. 在搜索框输入关键词并回车。结果必须恰好 1 个商品，且该行 SKU 或 ASIN 与关键词一致。
-3. 滚到该国模块。国家模块用 `ou-section-{国家代码}`。
-4. 按 `images` 的顺序逐位上传。
-5. 每一位都要看到上传成功标志，才算该位成功。文件路径进入文件框不算成功。
+| `IMAGES` 下标 | 页面位置 |
+|---|---|
+| 0 | MAIN |
+| 1–7 | PT01–PT07 |
+| 8 起 | PT08、PT09…（上一位成功后再等新位出现） |
 
-位置对应：
+不上传 FRONT / SIDE / BACK。
 
-| `images` 下标 | 页面位置 | 说明 |
-|---|---|---|
-| 0 | MAIN | 主图。后台原文「上传 1-1」 |
-| 1–7 | PT01–PT07 | 细节图 / 功能图，按顺序 |
-| 8 起 | PT08、PT09… | 页面一开始没有这些位。上一位确认成功后，等待新位置出现再上传 |
+下载到任务工作目录，文件名按 `MAIN`、`01`、`02`…，扩展名取自 URL。允许：`.gif` `.pjp` `.jfif` `.jpe` `.pjpeg` `.jpeg` `.jpg` `.png`。
 
-FRONT、SIDE、BACK 在页面上存在，本次 `images` 数组没有位置名，不上传。
+整单站点图成功：`IMAGES` 每一张都在对应位置确认成功。任一下载失败、找不到位置或未确认成功 → 站点图失败，后续位不再传。已成功位写入 `task_attempt.detail`。
 
-下载文件放到任务工作目录，文件名按位置主名保存（`MAIN`、`01`、`02`…），扩展名保持 URL 上的扩展名。允许的扩展名：`.gif` `.pjp` `.jfif` `.jpe` `.pjpeg` `.jpeg` `.jpg` `.png`。
+不把亚马逊稍后的「已显示」当作 RPA 成功。成功标志：该位出现新图、位置名固定、出现等待审核图标。
 
-整单站点图成功的条件：`images` 里每一张都在对应位置确认成功。任一下载失败、找不到该位置、或该位置未确认成功，则站点图失败，后面的位置不再上传。已成功的位置写入 `task_attempt.detail`。
+**已有图替换**：逐位往该位文件框覆盖上传，不点「全部替换」，也不先删原图。
 
-不把亚马逊稍后的审核通过（前台可检查、格子显示「已显示」）当作 RPA 成功。当前页面成功标志沿用现有判断：该位置出现新上传图片，位置名已固定，且出现等待审核图标。
-
-图片更新再次触发时，仍按 `images` 全量顺序上传。页面上该位已经有图时如何替换，见第 12 节，实现前先确认。
+图片更新再次触发时，仍按 `IMAGES` 全量顺序上传。
 
 ## 7. 提交 A+
 
-仅当 `actions` 含 `aplus` 时执行。站点图失败则不再提交 A+，整单按站点图的错误结束。
-
-后台顺序：
+仅当 `ACTIONS` 含 `aplus` 时执行。站点图失败则不再提交 A+。
 
 1. 打开该国「管理 A+ 商品描述」。
-2. 用同一关键词搜索。命中记录的类型必须是 **EBC**，状态必须是 **草稿**。类型或状态不对，立即失败，不重试。
-3. 进入该条商品描述。
-4. 点击编辑。
-5. 点击「下一步: 应用 ASIN」。已应用的 ASIN 必须是本任务的目标 ASIN（无 ASIN 时用 SKU 在该步能对上的那条）。对不上则立即失败，不重试。
-6. 点击「下一步: 查看并提交」。
-7. 点击「提交以供批准」，在弹窗中再次点击「提交以供批准」。
-8. 页面提示提交成功，且状态变为 **已提交**，A+ 步骤成功。
+2. 用同一关键词搜索。
+3. 在结果中筛选类型 **EBC**、状态 **草稿**：
+   - **0 条** → `APLUS_NOT_FOUND`（不可重试）
+   - **多条** → 取列表**从上到下第一条**
+   - 类型不是 EBC → `APLUS_NOT_EBC`；状态不是草稿 → `APLUS_NOT_DRAFT`
+4. 进入该条 → 编辑 →「下一步: 应用 ASIN」。已应用 ASIN 必须等于任务 `ASIN`，否则 `APLUS_ASIN_MISMATCH`。
+5. 「下一步: 查看并提交」→「提交以供批准」→ 弹窗再确认。
+6. 提示成功且状态为 **已提交** → A+ 成功。
 
-A+ 页面选择器尚未从已登录页面采集。实现时先核对选择器再写死到常量，不猜第一个匹配元素。
+A+ 选择器实现前先从已登录页核对再写死常量。
+
+重试时：若本机 `site_image_status = 成功`，**跳过站点图，只重跑 aplus**。
 
 ## 8. 回写 CL
 
-CL 上架页增加 **站点图上传状态**，只表示 RPA 传站点图的结果。
+回写同一行，至少：
 
-| 本程序 `site_image_status` | 回写到 CL |
-|---|---|
-| `成功` | 成功 |
-| `失败` | 失败 |
-| 尚未执行完 | 任务行保持 `处理中`，`site_image_status` 保持 `未执行`。上架页不把处理中写成成功或失败 |
+| 场景 | TASK_STATUS | ERROR_CODE / ERROR_MESSAGE | UPDATED_DATE |
+|---|---|---|---|
+| 整单成功 | `Confirm` | 清空 | 刷新 |
+| 终态失败 | `Error` | 写入 | 刷新 |
+| 可重试中 | 保持 `Process` | 可写入最近一次 | 刷新（含心跳） |
 
-A+ 结果不写入这个字段。A+ 失败仍写在同一任务行的 `error_code`、`error_msg` 上，对应步骤为 `aplus`。
+不再回写独立的 `site_image_status` 列。A+ 失败时 `ERROR_*` 对应步骤为 `aplus`（详情见本机 `task_attempt` 与日志）。
 
-回写就是第 5.1 节对同一行的 `UPDATE`。站点图成功或失败都写 `site_image_status`。中间的 `处理中` 不写成上架页的最终结果。
+## 9. 异常、重试与告警
 
-## 9. 异常、重试与失败通知
+### 9.1 重试
 
-配置项 `max_attempts`，默认 **3**。次数按整单计算：同一次执行里站点图失败，记 1 次，不再在同一次里接着提交 A+。
+配置 `max_attempts`，默认 **3**。按整单计次；同一次执行里站点图失败记 1 次，不再接着做 A+。
 
-每次失败都写入 `task.error_code`、`task.error_msg` 和一条 `task_attempt`。`error_msg` 要能看懂卡在哪一步，超时要写明在等什么、等了多久。
+可重试期间：本机 `待重试`，CL 保持 `Process`。达到上限或不可重试 → 本机 `失败`，CL `Error`。
 
-可重试（未到 N 次则 `待重试`，否则 `失败` 并通知）：
+### 9.2 errorCode
+
+可重试（未到 N 次则本机 `待重试`，否则 CL `Error`）：
 
 | errorCode | 场景 |
 |---|---|
@@ -246,82 +285,151 @@ A+ 结果不写入这个字段。A+ 失败仍写在同一任务行的 `error_cod
 | `IMG_SLOT_FAILED` | 某一位找不到、不唯一，或上传后没有成功标志 |
 | `APLUS_SEARCH_TIMEOUT` | A+ 搜索结果未在时限内就绪 |
 | `APLUS_SUBMIT_FAILED` | 提交过程超时，或提交后状态没有变成已提交 |
-| `UNKNOWN` | 未归类异常。`error_msg` 保留异常原文 |
+| `UNKNOWN` | 未归类异常 |
 
-不可重试（立刻 `失败` 并通知）：
+不可重试（立刻 CL `Error`）：
 
 | errorCode | 场景 |
 |---|---|
-| `TASK_INVALID` | 缺任务号、国家无法识别、要传图但 `images` 为空、动作与触发不一致 |
-| `IMG_SEARCH_NOT_UNIQUE` | 搜索结果不是 1 件，或唯一一件的 SKU/ASIN 与关键词不一致 |
+| 第 5.4 节入队校验各码 | 空字段、URL 非法、ACTIONS 非法等 |
+| `IMG_SEARCH_NOT_UNIQUE` | 搜索结果不是 1 件，或唯一一件与关键词不一致 |
 | `IMG_TYPE_UNSUPPORTED` | 扩展名不在允许列表 |
-| `APLUS_NOT_FOUND` | 搜不到 A+ |
+| `APLUS_NOT_FOUND` | 无 EBC+草稿 |
 | `APLUS_NOT_EBC` | 类型不是 EBC |
 | `APLUS_NOT_DRAFT` | 状态不是草稿 |
 | `APLUS_ASIN_MISMATCH` | 已应用 ASIN 不是目标 |
 
-达到失败终态时，写回 CL 任务行的内容至少包括：
+业务失败**只写回 CL 任务行**，不发飞书。
 
-```json
-{
-  "taskId": "CL 侧任务号",
-  "sku": "SKU",
-  "asin": "ASIN",
-  "country": "ES",
-  "action": "site_images",
-  "attempt": 3,
-  "errorCode": "IMG_SLOT_FAILED",
-  "errorMsg": "PT01 上传未确认成功：等了 30.0 秒"
-}
-```
+### 9.3 登录失效：暂停该国 + 飞书告警
 
-`action` 取本次失败的那一步。站点图失败时 CL 将上架页站点图状态记为失败。
+仅以下情况发飞书机器人告警（业务终态失败不发）：
+
+- 导航落在登录墙 / 登录态失效
+- 密码被拒、验证码超时、需 App 批准、拼图需人工后仍无法回到卖家后台（本期人工登录场景下的检测与暂停；半自动流程见附录 A）
+
+处理：
+
+1. **暂停该国全部任务**（含队列中未执行的）：本机标记该国不可用，相关任务 `待人工`；不把业务行打成 `Error`（除非另有业务错误）。
+2. 向配置项 `feishu_webhook_url` 发告警（真实 URL 只放本机配置，**不进仓库**）。
+3. **每 30 分钟**自动监控该国是否已回到可操作后台；恢复后取消暂停，继续领取/执行。
+4. 不占用 `max_attempts`。
 
 ## 10. 日志
 
-日志目录用配置 `log_dir`（默认 `logs`），级别用 `log_level`。按天写文件。
+`log_dir`（默认 `logs`）、`log_level`。按天写文件。
 
-每条业务日志带 `taskId`、`sku`、`asin`、`country`、`action`、`attempt`。要记下的节点：入队、开始、图片下载（URL 与本地路径，不写文件内容）、搜索、每一位上传结果、A+ 的每一步、重试原因、终态、回写/通知结果。
+每条业务日志带：`TASK_ID`、`AMZ_CROSS_TASK_GUID`、`sku`、`asin`、`cross_country`、`action`、`attempt`。节点：入队、领取、校验、下载、搜索、各位上传、A+ 各步、重试、登录暂停/恢复、终态、回写、飞书告警结果。
 
-异常同时进日志和 `task_attempt`。日志给排查，队列表给重试和通知。页面选择器和 CDP 细节保持在代码常量里，不把整段 HTML 打进日志。
+不打印密码与验证码。不把整段 HTML 打进日志。
 
 ## 11. 与当前代码的差距
 
-已经有的能力可以沿用：
+已有可沿用：七国端口与用户目录、打开 `/imaging/manage`、搜索/国家模块/`setFileInputFiles`/成功标志、Excel 联调与 SQLite 骨架。
 
-- 七国端口、独立用户目录启动 Chrome、打开 `/imaging/manage`。
-- 搜索框、国家模块、按位置名找文件框、`setFileInputFiles`、上传成功标志。
-- Excel 导入与 SQLite 队列骨架。队列目前只有 `sku`、`asin`、`country`、`picture`、`A+introduction`、`status`。
-
-尚未接到正式流程、需要按本文补上的部分：
+待按本文补齐：
 
 | 项 | 现状 |
 |---|---|
-| 入口 | `main.py` 只打开 Excel 导入窗口。`pipeline.run` 未被入口调用，其中的准备、提交、回写仍是空函数 |
-| 图片来源 | 上传逻辑读本地目录 `图片根目录/关键词/国家代码/`，按文件名 `MAIN`、`01`…`07` 找文件。还不会下载 CDN |
-| MAIN | 上传循环里 MAIN 被记为「暂不上传」 |
-| PT08 及以后 | 位置表只到 PT07 |
-| 成功判定 | 搜索与逐位上传已写，端到端尚未重新跑通；英国国家模块未验证 |
+| 入口 | 仍以 Excel 窗口为主；正式应轮询 CL 表 |
+| 图片来源 | 本地目录找文件；需改为下载完整 URL |
+| MAIN / PT08+ | MAIN 暂不上传；位置表只到 PT07 |
+| 已有图 | 需确认逐位覆盖在页面上生效 |
 | A+ | 无页面模块 |
-| 日志 | `setup_logging` 是空函数 |
-| 回写 | `write_status` 是空函数，且目标仍写成 Excel。正式回写改为更新 CL 任务表同一行 |
-| CL 任务表 | 尚未轮询、领取或回写 |
-| 重试与 errorCode | 无 |
+| 日志 / 回写 / 重试 / errorCode | 空或缺 |
+| CL 表 | 未轮询；表需 CL 增补 `MAIN_COUNTRY`、`CROSS_COUNTRY`、`UPDATED_DATE` |
+| 登录暂停与飞书 | 无；半自动重登为附录 TODO |
 
-模块边界保持不变：`cdp.py` 只连接和发命令；`imaging_upload.py` 只处理图片管理页；A+ 单独成模块，不写进图片上传文件；队列不操作浏览器。
+模块边界：`cdp.py` 只连接发令；`imaging_upload.py` 只图片页；A+ 单独模块；队列不操作浏览器。
 
 建议实现顺序：
 
-1. 任务入队、尝试记录、日志（不打开浏览器）。
-2. 按 `images` 下载到任务目录。
-3. 接上 MAIN，并在 PT07 之后等待后续位置。
-4. 站点图终态回写 CL。
-5. A+ 提交。
-6. 重试上限与失败通知。
+1. 本机任务模型、校验、attempt、日志
+2. CL 轮询领取 / 回写 / 僵尸回收
+3. 按 URL 下载 + MAIN + PT08+
+4. 逐位覆盖上传跑通
+5. A+ 提交（含多条取第一条）
+6. 重试（跳过已成功站点图）
+7. 登录检测、该国暂停、飞书 webhook、30 分钟监控
+8. （后续）附录 A 半自动重登
 
-## 12. 待确认
+## 12. 已拍板结论
 
-1. 图片更新时，该位置已有图片，是逐位覆盖，还是先点后台「全部替换」。当前实现只往文件框放文件，没有替换已有图。
-2. `images[0]` 是否始终是主图。本文按后台说明把第 1 张给 MAIN、其后给 PT01 起。若 CL 的数组不包含主图，映射要改。
-3. A+ 在「应用 ASIN」一步，任务只有 SKU、没有 ASIN 时，用什么与页面上的已应用 ASIN 比对。
-4. CL 任务表的库名和表名。列和状态语义以第 5.1 节为准。
+| 项 | 结论 |
+|---|---|
+| 已有图 | 逐位覆盖 |
+| 空字段 | 本机兜底，专用 errorCode（第 5.4 节） |
+| 缺 ASIN 且要做 A+ | 入队拦截 `ASIN_EMPTY` |
+| CL 表 | `ca_pid_amz_cross_site_task_all`；增 `MAIN_COUNTRY`、`CROSS_COUNTRY`、`UPDATED_DATE` |
+| 状态 | `New` / `Process` / `Confirm` / `Error`；CAS 领取；30 分钟无更新的 `Process` → `New`；长任务心跳 |
+| 可重试时 CL 状态 | 保持 `Process` |
+| 国别 | 只认 `MAIN_COUNTRY` + `CROSS_COUNTRY` |
+| `ACTIONS` | CL 写，本机只读 |
+| `IMAGES` | 完整 URL |
+| 无 trigger / site_image_status / attempt 列 | 确认去掉；attempt 仅本机 |
+| 日志任务号 | `TASK_ID` 与 `AMZ_CROSS_TASK_GUID` 都打 |
+| A+ 0 / 多条 | 0 报错；多条取第一条 |
+| 重试范围 | 站点图已成功则只重跑 aplus |
+| 飞书 | 仅登录态问题；业务失败只写 CL |
+| 登录暂停 | 该国全部任务，直至恢复；每 30 分钟监控 |
+| 半自动重登 | 附录 A，TODO |
+| US/CA | 能力保留 |
+| `错误边界.md` | 暂时保留，冲突以本文为准 |
+
+库账号等连接配置由实施时写入本机配置（待提供）。
+
+---
+
+## 附录 A. 登录过期后的半自动重登（TODO，未实施）
+
+本期不实现。正文以人工保登录 + 第 9.3 节暂停/告警为准。本附录保留原方案，供后续迭代。
+
+### A.1 目标
+
+卖家后台掉线后：本机账号密码提交登录 → 短信/邮件验证码由人填入飞书多维表格 → 程序填回页面并继续当前任务。拼图不自动解。不把账号密码或验证码写入仓库。
+
+### A.2 流程
+
+```mermaid
+flowchart TD
+  nav[打开图片页或描述页]
+  wall{网址是登录或验证码页?}
+  biz[继续原任务]
+  cred[用本机账号密码提交登录]
+  captcha{出现拼图验证?}
+  humanCap[窗口置前，等人在浏览器里过验证]
+  otp{出现验证码输入框?}
+  table[多维表格该国一行改为待填写并清空旧码]
+  poll[轮询表格直到有新验证码或超时]
+  fill[填入页面并提交，勾选记住此设备]
+  used[表格改为已使用并清空验证码]
+  nav --> wall
+  wall -->|否| biz
+  wall -->|是| cred
+  cred --> captcha
+  captcha -->|是| humanCap
+  humanCap --> otp
+  captcha -->|否| otp
+  otp -->|是| table
+  table --> poll
+  poll -->|有码| fill
+  fill --> used
+  used --> biz
+```
+
+导航落在登录墙时才走；成功后继续同一任务，不占用 `max_attempts`。验证码超时或登录失败：按第 9.3 节暂停该国并飞书告警。
+
+### A.3 实现要点（实施时）
+
+- `app/browser.py` 识别 `/ap/signin`、`/ap/mfa`、`/ap/cvf` 等，交给 `app/login.py`
+- 选择器从真实掉线页核对后写死
+- 账号：`%LOCALAPPDATA%\AosomImageAplus\login.json`（不进 git）
+- 飞书多维表格按国家一行交接验证码；填入后清空
+- 与第 9.3 节 webhook 告警共用「该国暂停 / 30 分钟监控 / 恢复后续跑」
+
+### A.4 实施清单
+
+- 核对登录页选择器
+- 新增 `app/login.py`
+- 导航命中登录墙时调用重登
+- 更新 `错误边界.md`：登录被拒、验证码超时、拼图需人工
