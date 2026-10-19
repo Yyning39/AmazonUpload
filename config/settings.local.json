@@ -1,0 +1,26 @@
+{
+  "env": "dev",
+  "environments": {
+    "dev": {
+      "cl_db": {
+        "host": "192.168.70.81",
+        "port": 3306,
+        "database": "catest",
+        "user": "cl_developer",
+        "password": "Y4183v;lD9VEy++I",
+        "charset": "utf8mb4"
+      }
+    },
+    "prod": {
+      "cl_db": {
+        "host": "rm-uf6f172cc09ht7800.mysql.rds.aliyuncs.com",
+        "port": 3306,
+        "database": "cadev",
+        "user": "capps",
+        "password": "RS6u9,1uig+g51j5",
+        "charset": "utf8mb4"
+      }
+    }
+  },
+  "feishu_webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/e1242c51-679c-467d-be4d-8b1ff994cb8f"
+}
