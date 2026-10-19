@@ -46,4 +46,22 @@ def load_config(path):
             with local.open(encoding="utf-8") as handle:
                 config = _deep_merge(config, json.load(handle))
             break
-    return config
+    return _apply_environment(config)
+
+
+def _apply_environment(config):
+    """按 env 选用 environments 里的连接项，覆盖到顶层。
+
+    未配置 environments 时保持原样，兼容只写一份 cl_db 的旧文件。
+    """
+    environments = config.get("environments")
+    if not isinstance(environments, dict) or not environments:
+        return config
+    name = str(config.get("env") or "").strip()
+    if not name:
+        return config
+    selected = environments.get(name)
+    if not isinstance(selected, dict):
+        known = "、".join(str(key) for key in environments)
+        raise ValueError("未知环境「" + name + "」，可选：" + known)
+    return _deep_merge(config, selected)
