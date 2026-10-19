@@ -26,7 +26,7 @@ if exist "dist\AosomImageAplus" (
 )
 
 echo 打包新版本...
-python -m PyInstaller --noconfirm --console --name AosomImageAplus --collect-all tkinterdnd2 --add-data "config;config" main.py
+python -m PyInstaller --noconfirm --console --name AosomImageAplus --collect-all tkinterdnd2 --add-data "config/settings.json;config" main.py
 if errorlevel 1 (
   echo 打包失败。
   pause

@@ -5,3 +5,4 @@ venv/
 data/*.sqlite3
 build/
 dist/
+config/settings.local.json

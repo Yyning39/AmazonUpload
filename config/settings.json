@@ -5,6 +5,14 @@
   "log_dir": "logs",
   "log_level": "INFO",
   "source_excel": "",
+  "cl_db": {
+    "table": "ca_pid_amz_cross_site_task_all",
+    "database": "cadev",
+    "poll_interval_seconds": 30,
+    "stale_processing_seconds": 1800,
+    "connect_timeout_seconds": 10
+  },
+  "max_attempts": 3,
   "browser": {
     "host": "127.0.0.1",
     "startup_country": "ES",

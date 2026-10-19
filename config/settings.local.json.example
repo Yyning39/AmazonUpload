@@ -1,0 +1,11 @@
+{
+  "cl_db": {
+    "host": "rm-xxxx.mysql.rds.aliyuncs.com",
+    "port": 3306,
+    "database": "cadev",
+    "user": "capps",
+    "password": "在此填写，勿提交到 git",
+    "charset": "utf8mb4"
+  },
+  "feishu_webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/替换为真实 hook"
+}

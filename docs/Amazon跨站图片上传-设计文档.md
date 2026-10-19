@@ -9,7 +9,7 @@
 在 Windows 本机，用已登录的 Chrome，按**跨站国别**完成两件事：
 
 1. **传站点图**：把上游给出的图片上传到 Seller Central 图片管理页。
-2. **A+ 提交应用**：找到类型为 EBC、状态为草稿的 A+，确认已应用 ASIN 后提交批准。
+2. **A+ 提交应用**：找到类型为 EBC、状态为草稿的 A+，确认已应用 ASIN 后提交批准；**无此类草稿则跳过 A+**，不算失败。
 
 CL 负责欧洲五国跟卖上架，以及在规定时机触发本程序。本程序不实现上架，只执行上传和提交，并把结果写回 CL 任务行。程序能力覆盖七国（含 US/CA）；CL 现阶段主要投欧洲五国。
 
@@ -32,8 +32,9 @@ CL 负责欧洲五国跟卖上架，以及在规定时机触发本程序。本�
 - 浏览器控制只用 Chrome DevTools Protocol。上传用 `DOM.setFileInputFiles`，不弹出系统文件框。
 - Chrome 与本程序必须在同一台机器。
 - **本期**：Seller Central 登录与验证码由人工在该 Chrome 中完成。检测到登录墙或登录失败时：不执行该国任务，发飞书告警，每 30 分钟自动监控直至恢复（见第 9.3 节）。半自动重登见附录 A。
-- 正式通道是 CL 表 `ca_pid_amz_cross_site_task_all`。CL 插入一行，本机轮询领取，终态写回同一行。CL 服务器不连接本机 `127.0.0.1`。
-- 库连接信息放在本机配置，不写入仓库。未经点名，不写正式站库。
+- 正式通道是 CL 库 **`cadev`** 表 `ca_pid_amz_cross_site_task_all`。CL 插入一行，本机轮询领取，终态写回同一行。CL 服务器不连接本机 `127.0.0.1`。
+- 库连接：公开项在 `config/settings.json` 的 `cl_db`（表名、轮询间隔等）；**host / user / password 只放** `config/settings.local.json`（已 gitignore，仓库仅有 `.example`）。程序启动时 `load_config` 会合并二者。打包时不要把 `settings.local.json` 打进发行包。
+- 本程序只连 **cadev**（正式站），不连 catest。对 cadev 的写操作须经用户当次明确允许后再执行；开发联调默认只读或先确认。
 
 Excel 选择/拖入只保留为联调入口，不作为自动触发通道。
 
@@ -46,12 +47,12 @@ CL 在触发点 INSERT 一行（TASK_STATUS = New，ACTIONS / IMAGES 等已填�
   → 复制到本机 SQLite 后执行
   → 按 CROSS_COUNTRY 连接已登录 Chrome
   → 传站点图（按 IMAGES 下载完整 URL）
-  → 若 ACTIONS 含 aplus：提交 A+
-  → 成功 → Confirm，清空 ERROR_*
+  → 再执行 A+：有 EBC 草稿则提交；无草稿则跳过 A+（不算失败）
+  → 站点图成功且（A+ 成功或已跳过）→ Confirm，清空 ERROR_*
   → 可重试失败 → CL 保持 Process，本机待重试；耗尽或不可重试 → Error
 ```
 
-一次任务可以只做站点图，也可以先站点图、再 A+。A+ 不依赖本次站点图已经通过亚马逊审核。亚马逊审核是后台异步结果，RPA 不等待「已显示」或前台可见。
+**默认每条任务都执行传站点图与 A+**（先图后 A+）。无 EBC+草稿时跳过 A+，只要站点图成功即可 `Confirm`。A+ 不依赖本次站点图已经通过亚马逊审核。亚马逊审核是后台异步结果，RPA 不等待「已显示」或前台可见。
 
 ## 5. 任务
 
@@ -89,7 +90,7 @@ CL 在触发点 INSERT 一行（TASK_STATUS = New，ACTIONS / IMAGES 等已填�
 |---|---|
 | `New` | 可领取 |
 | `Process` | 已领取，执行中（含本机可重试等待期间） |
-| `Confirm` | 整单成功（`ACTIONS` 内步骤均成功） |
+| `Confirm` | 整单成功：站点图成功，且 A+ 成功或因无草稿已跳过 |
 | `Error` | 终态失败（不可重试，或本机重试耗尽） |
 
 领取（防重复消费）：
@@ -125,12 +126,12 @@ WHERE TASK_STATUS = 'Process'
 
 ### 5.2 CL 何时触发
 
-| 触发 | 条件 | CL 写入的 `ACTIONS` |
+| 触发 | 条件 | 本程序执行 |
 |---|---|---|
-| 上架完成 | 帖子状态变为 **Listed(A+已上传)** | `["site_images", "aplus"]` |
-| 图片更新 | 正常图片或 AI 打标图片发生更新 | `["site_images"]` |
+| 上架完成 | 帖子状态变为 **Listed(A+已上传)** | 传站点图，再 A+（无草稿则跳过 A+） |
+| 图片更新 | 正常图片或 AI 打标图片发生更新 | 同上：传站点图，再 A+（无草稿则跳过 A+） |
 
-本机只读 `ACTIONS` 决定步骤，不根据帖子状态猜测。
+两种触发步骤相同。CL 写入的 `ACTIONS` 建议均为 `["site_images", "aplus"]`；本机**默认按「传图 + A+」执行**，不以「仅 site_images」省略 A+。无草稿时的跳过见第 7 节。
 
 ### 5.3 任务字段规则
 
@@ -142,7 +143,7 @@ WHERE TASK_STATUS = 'Process'
 | `SKU` / `ASIN` | 搜索关键词：有 SKU 用 SKU，否则用 ASIN。二者都空 → 入队失败 |
 | `CROSS_COUNTRY` | 连接该国 Chrome、打开该国 Seller Central。无法识别 → 入队失败 |
 | `MAIN_COUNTRY` | 与跨站定位一并由 CL 填写；本机用于校验/日志，连浏览器以 `CROSS_COUNTRY` 为准 |
-| `ACTIONS` | CL 写入。含 `site_images` 时必须有有效 `IMAGES`；含 `aplus` 时必须有非空 `ASIN` |
+| `ACTIONS` | CL 建议写入 `["site_images", "aplus"]`。本机默认两步都做；须有有效 `IMAGES`，且须有非空 `ASIN`（供 A+ 比对；无草稿跳过 A+ 时仍要求入队时 ASIN 非空） |
 | `IMAGES` | JSON 数组，**每一项为完整 `http(s)` URL**（参考既有 CDN 示例）。按展示顺序：`[0]`→MAIN，`[1]`→PT01，以此类推 |
 
 `IMAGES` 示例：
@@ -164,13 +165,12 @@ WHERE TASK_STATUS = 'Process'
 | `TASK_ID` 为空 | `TASK_ID_EMPTY` |
 | `MAIN_COUNTRY` / `CROSS_COUNTRY` 无法识别为七国代码 | `COUNTRY_INVALID` |
 | `SKU`、`ASIN` 都空 | `SKU_ASIN_EMPTY` |
-| `ACTIONS` 含 `site_images` 且 `IMAGES` 缺省或空数组 | `IMG_EMPTY` |
+| `IMAGES` 缺省或空数组 | `IMG_EMPTY` |
 | `IMAGES` 某项为 null / 空串 / 纯空白 | `IMG_ITEM_EMPTY`（`ERROR_MESSAGE` 带下标） |
 | `IMAGES` 某项不是 `http://` 或 `https://` 开头 | `IMG_URL_INVALID` |
-| `ACTIONS` 含 `aplus` 且 `ASIN` 空 | `ASIN_EMPTY` |
-| `ACTIONS` 为空或无法解析为数组 | `ACTIONS_INVALID` |
+| `ASIN` 空（默认要走 A+ 比对） | `ASIN_EMPTY` |
 
-含 `aplus` 但缺 `ASIN`：**入队即拦截**，不先传站点图。
+缺 `ASIN`：**入队即拦截**，不先传站点图。`ACTIONS` 缺省或无法解析时按默认 `["site_images", "aplus"]` 处理，不因此 `Error`。
 
 ### 5.5 本机队列
 
@@ -190,7 +190,7 @@ WHERE TASK_STATUS = 'Process'
 | `attempt` | 已执行次数，从 1 开始（只在本机） |
 | `error_code` / `error_msg` | 最近一次失败 |
 | `site_image_status` | `未执行` / `成功` / `失败` |
-| `aplus_status` | `未执行` / `成功` / `失败` / `不适用` |
+| `aplus_status` | `未执行` / `成功` / `失败` / `跳过`（无 EBC 草稿） |
 | `created_at` / `updated_at` | 本机时间 |
 
 `task_attempt` 追加每次尝试：`task_id`、`attempt`、`action`（`site_images` 或 `aplus`）、`error_code`、`error_msg`、`detail`、`created_at`。
@@ -236,21 +236,22 @@ WHERE TASK_STATUS = 'Process'
 
 ## 7. 提交 A+
 
-仅当 `ACTIONS` 含 `aplus` 时执行。站点图失败则不再提交 A+。
+**默认每条任务在站点图之后都执行 A+。** 站点图失败则不再做 A+，整单按站点图错误结束。
 
 1. 打开该国「管理 A+ 商品描述」。
 2. 用同一关键词搜索。
 3. 在结果中筛选类型 **EBC**、状态 **草稿**：
-   - **0 条** → `APLUS_NOT_FOUND`（不可重试）
+   - **0 条（无草稿）** → **跳过 A+**：本机 `aplus_status = 跳过`，记一条 `task_attempt`（说明无草稿），**不**写 CL `Error`；若站点图已成功则整单 `Confirm`
    - **多条** → 取列表**从上到下第一条**
-   - 类型不是 EBC → `APLUS_NOT_EBC`；状态不是草稿 → `APLUS_NOT_DRAFT`
 4. 进入该条 → 编辑 →「下一步: 应用 ASIN」。已应用 ASIN 必须等于任务 `ASIN`，否则 `APLUS_ASIN_MISMATCH`。
 5. 「下一步: 查看并提交」→「提交以供批准」→ 弹窗再确认。
-6. 提示成功且状态为 **已提交** → A+ 成功。
+6. 提示成功且状态为 **已提交** → A+ 成功（`aplus_status = 成功`）。
+
+已进入某条草稿后，提交过程失败仍按第 9.2 节可重试/不可重试处理；与「根本没有草稿因而跳过」不同。
 
 A+ 选择器实现前先从已登录页核对再写死常量。
 
-重试时：若本机 `site_image_status = 成功`，**跳过站点图，只重跑 aplus**。
+重试时：若本机 `site_image_status = 成功`，**跳过站点图，只重跑 aplus**（若上次为跳过且仍无草稿，再次跳过即可）。
 
 ## 8. 回写 CL
 
@@ -258,11 +259,11 @@ A+ 选择器实现前先从已登录页核对再写死常量。
 
 | 场景 | TASK_STATUS | ERROR_CODE / ERROR_MESSAGE | UPDATED_DATE |
 |---|---|---|---|
-| 整单成功 | `Confirm` | 清空 | 刷新 |
+| 整单成功（含 A+ 已跳过） | `Confirm` | 清空 | 刷新 |
 | 终态失败 | `Error` | 写入 | 刷新 |
 | 可重试中 | 保持 `Process` | 可写入最近一次 | 刷新（含心跳） |
 
-不再回写独立的 `site_image_status` 列。A+ 失败时 `ERROR_*` 对应步骤为 `aplus`（详情见本机 `task_attempt` 与日志）。
+不再回写独立的 `site_image_status` 列。A+ **业务失败**（非「无草稿跳过」）时 `ERROR_*` 对应步骤为 `aplus`（详情见本机 `task_attempt` 与日志）。无草稿跳过不写 `ERROR_*`。
 
 ## 9. 异常、重试与告警
 
@@ -291,13 +292,12 @@ A+ 选择器实现前先从已登录页核对再写死常量。
 
 | errorCode | 场景 |
 |---|---|
-| 第 5.4 节入队校验各码 | 空字段、URL 非法、ACTIONS 非法等 |
+| 第 5.4 节入队校验各码 | 空字段、URL 非法等 |
 | `IMG_SEARCH_NOT_UNIQUE` | 搜索结果不是 1 件，或唯一一件与关键词不一致 |
 | `IMG_TYPE_UNSUPPORTED` | 扩展名不在允许列表 |
-| `APLUS_NOT_FOUND` | 无 EBC+草稿 |
-| `APLUS_NOT_EBC` | 类型不是 EBC |
-| `APLUS_NOT_DRAFT` | 状态不是草稿 |
 | `APLUS_ASIN_MISMATCH` | 已应用 ASIN 不是目标 |
+
+无 EBC+草稿 → **跳过 A+**，不用 `APLUS_NOT_FOUND` / `APLUS_NOT_EBC` / `APLUS_NOT_DRAFT` 打成 `Error`。
 
 业务失败**只写回 CL 任务行**，不发飞书。
 
@@ -348,7 +348,7 @@ A+ 选择器实现前先从已登录页核对再写死常量。
 2. CL 轮询领取 / 回写 / 僵尸回收
 3. 按 URL 下载 + MAIN + PT08+
 4. 逐位覆盖上传跑通
-5. A+ 提交（含多条取第一条）
+5. A+ 提交（默认每单都做；无草稿跳过；多条取第一条）
 6. 重试（跳过已成功站点图）
 7. 登录检测、该国暂停、飞书 webhook、30 分钟监控
 8. （后续）附录 A 半自动重登
@@ -359,16 +359,18 @@ A+ 选择器实现前先从已登录页核对再写死常量。
 |---|---|
 | 已有图 | 逐位覆盖 |
 | 空字段 | 本机兜底，专用 errorCode（第 5.4 节） |
-| 缺 ASIN 且要做 A+ | 入队拦截 `ASIN_EMPTY` |
+| 缺 ASIN | 入队拦截 `ASIN_EMPTY`（默认要走 A+） |
 | CL 表 | `ca_pid_amz_cross_site_task_all`；增 `MAIN_COUNTRY`、`CROSS_COUNTRY`、`UPDATED_DATE` |
 | 状态 | `New` / `Process` / `Confirm` / `Error`；CAS 领取；30 分钟无更新的 `Process` → `New`；长任务心跳 |
 | 可重试时 CL 状态 | 保持 `Process` |
 | 国别 | 只认 `MAIN_COUNTRY` + `CROSS_COUNTRY` |
-| `ACTIONS` | CL 写，本机只读 |
+| 默认步骤 | 每条任务都传图 + 做 A+；两种触发相同 |
+| A+ 无草稿 | 跳过 A+，不算失败；站点图成功即可 `Confirm` |
+| `ACTIONS` | CL 建议写 `["site_images","aplus"]`；本机默认两步都做 |
 | `IMAGES` | 完整 URL |
 | 无 trigger / site_image_status / attempt 列 | 确认去掉；attempt 仅本机 |
 | 日志任务号 | `TASK_ID` 与 `AMZ_CROSS_TASK_GUID` 都打 |
-| A+ 0 / 多条 | 0 报错；多条取第一条 |
+| A+ 0 / 多条 | 0 条跳过；多条取第一条 |
 | 重试范围 | 站点图已成功则只重跑 aplus |
 | 飞书 | 仅登录态问题；业务失败只写 CL |
 | 登录暂停 | 该国全部任务，直至恢复；每 30 分钟监控 |
@@ -376,7 +378,7 @@ A+ 选择器实现前先从已登录页核对再写死常量。
 | US/CA | 能力保留 |
 | `错误边界.md` | 暂时保留，冲突以本文为准 |
 
-库账号等连接配置由实施时写入本机配置（待提供）。
+CL 库连接已定：仅 **cadev** + 表 `ca_pid_amz_cross_site_task_all`；账号密码见本机 `config/settings.local.json`（不进仓库）。catest 仅作 CL 服务端开发参考，本程序不使用。
 
 ---
 
