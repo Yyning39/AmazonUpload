@@ -198,6 +198,8 @@ def _cell(parent, text, status=False, bg="#ffffff"):
     color = TEXT
     if status and value in {"成功", "完成", "已提交"}:
         color = "#12854e"
+    elif status and value in {"跳过"}:
+        color = "#8a5a00"
     elif status and value in {"失败", "需核对"}:
         color = "#be3737"
     return tk.Label(parent, text=value, bg=bg, fg=color, font=("Microsoft YaHei UI", 10), anchor="w", justify="left", padx=8, pady=6, wraplength=280)
@@ -930,6 +932,8 @@ def append_aplus_log(path, report):
             continue
         if part == "已提交":
             status, reason = "成功", ""
+        elif part.startswith("跳过"):
+            status, reason = "跳过", _skip_detail(part)
         elif part:
             status, reason = "失败", part
         else:
@@ -958,6 +962,14 @@ def _description_part(reason):
         if text.startswith("描述："):
             return text.split("：", 1)[1].strip()
     return ""
+
+
+def _skip_detail(part):
+    """「跳过（原因）」只把括号里的说明写入记录。"""
+    detail = str(part or "")[2:].strip()
+    if detail.startswith("（") and detail.endswith("）"):
+        detail = detail[1:-1].strip()
+    return detail
 
 
 def _parse_picture(text):

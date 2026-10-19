@@ -7,6 +7,10 @@ from urllib.parse import urlparse
 from app.imaging_upload import NeedsManual
 
 
+class AplusNotFound(Exception):
+    """搜完仍没有可提交的 A+。调用方跳过这一侧，不算失败。"""
+
+
 # 外层在页面上。真正的 input 在 kat-input 的 shadowRoot 里。
 ASIN_INPUT_SELECTOR = 'kat-input[data-component-id="project-search-box"]'
 # SKU 搜索在表格组件的 shadowRoot 里。part 不随语言变化。
@@ -21,6 +25,8 @@ CONTENT_STATUS_CELL_SELECTOR = '.ag-cell[col-id="contentStatus"]'
 NEXT_PAGE_SELECTOR = '.ag-paging-button[ref="btNext"]'
 PAGE_SUMMARY_SELECTOR = ".ag-paging-description"
 CONTENT_TYPE_EBC = "EBC"
+# 翻完所有结果页仍没有可点进去提交的描述。这是跳过，不是失败。
+NO_UPLOADABLE_APLUS = "没有名称与 SKU 相同、内容类型为 EBC、内容状态为草稿的商品描述"
 # 同一状态在中文和英文界面上的词。西班牙页上看到的是 Draft，不是「草稿」。
 DRAFT_STATUSES = {"草稿", "draft"}
 SUBMITTED_STATUSES = {"已提交", "submitted"}
@@ -68,7 +74,9 @@ def open_matched_description(session, sku, timeout=30, previous=None):
     """在搜索结果里逐行对比，点开第一条名称与 SKU 相同、内容类型为 EBC、内容状态为草稿的描述。
 
     搜索结果经常晚于点击出现。这里最多检索 3 次，每次最多等 60 秒。
-    当前页没有就点下一页。不判断语言、ASIN。没有匹配行时只抛错，不回写。
+    当前页没有就点下一页。不判断语言、ASIN。
+    翻完仍没有可提交的描述时抛出 AplusNotFound，由调用方跳过，不回写。
+    某一次已经确认没有匹配行时，后面几次若只是结果没再变化，仍按没有可提交的描述结束。
     """
     del timeout
     sku_text = str(sku or "").strip()
@@ -76,6 +84,7 @@ def open_matched_description(session, sku, timeout=30, previous=None):
         raise NeedsManual("SKU 为空")
     stamp = previous
     last_error = None
+    last_missing = None
     for attempt in range(1, SEARCH_ATTEMPTS + 1):
         if attempt > 1:
             stamp = session.evaluate(_list_stamp_js()) or {}
@@ -86,18 +95,26 @@ def open_matched_description(session, sku, timeout=30, previous=None):
         try:
             _open_search_match(session, sku_text, started, deadline, stamp)
             return
+        except AplusNotFound as exc:
+            last_missing = exc
+            last_error = exc
+            if attempt == SEARCH_ATTEMPTS:
+                raise
         except NeedsManual as exc:
             last_error = exc
             if attempt == SEARCH_ATTEMPTS or not _search_can_retry(exc):
+                if last_missing is not None and _search_can_retry(exc):
+                    raise last_missing
                 raise
+    if last_missing is not None:
+        raise last_missing
     raise last_error
 
 
 def _search_can_retry(exc):
     text = str(exc)
     return (
-        text.startswith("没有名称与 SKU 相同")
-        or text.startswith("等待描述搜索结果超时")
+        text.startswith("等待描述搜索结果超时")
         or text.startswith("无法读取商品描述名称")
     )
 
@@ -127,7 +144,7 @@ def _open_search_match(session, sku_text, started, deadline, previous):
             _wait_for_detail(session, started, deadline, href)
             return
         if not state.get("nextEnabled"):
-            raise NeedsManual("没有名称与 SKU 相同、内容类型为 EBC、内容状态为草稿的商品描述")
+            raise AplusNotFound(NO_UPLOADABLE_APLUS)
         if not session.evaluate(_click_next_page_js()):
             raise NeedsManual("无法点击下一页")
         _wait_for_page_change(session, started, deadline, page_text)

@@ -37,8 +37,8 @@ URL_IMAGE_SELECTOR = '[data-testid="url-image"]'
 UPLOADED_IMAGE_SELECTOR = f"{NEWLY_UPLOADED_IMAGE_SELECTOR}, {URL_IMAGE_SELECTOR}"
 DASHED_SLOT_SELECTOR = '[data-testid="image-slot-dashed"]'
 PENDING_SELECTOR = '[class*="status-pending"]'
-# 有图格子里的垃圾桶。data-capture 是 variant-delete-button，无文字。
-DELETE_ICON_SELECTOR = '[data-testid="delete-icon"]'
+# 有图格子里的垃圾桶。同一颗上有 data-testid，也有 data-capture，无文字。
+DELETE_ICON_SELECTOR = '[data-testid="delete-icon"], [data-capture="variant-delete-button"]'
 # 点垃圾桶后出现的确认框。确定按钮用 data-capture，不看按钮文字。
 DELETE_CONFIRM_MODAL_SELECTOR = '[data-testid="delete-confirmation-modal"]'
 DELETE_CONFIRM_BUTTON_SELECTOR = '[data-capture="variant-delete-confirmation-submit"]'
@@ -202,15 +202,14 @@ def _upload_or_record(session, country, page_slot, path, file_stem, timeout):
 
 
 def _clear_existing_image(session, country, page_slot, timeout):
-    """这一格没有图时直接返回。有图则点这一格的删除按钮，等确认框，再点框里的删除。"""
+    """这一格没有图时直接返回。有图则先把鼠标移到格子上，等到可见的删除按钮再点，然后点确认框里的删除。"""
     selector = _country_selector(country)
     state = session.evaluate(_slot_image_state_js(selector, page_slot)) or {}
     if not _already_uploaded(state):
         return True
-    count = int(session.evaluate(_delete_count_js(selector, page_slot)) or 0)
-    if count != 1:
+    if not _wait_for_delete_button(session, selector, page_slot, timeout):
         return False
-    if not session.evaluate(_click_delete_js(selector, page_slot)):
+    if not _click_visible_delete(session, selector, page_slot):
         return False
     try:
         _wait_until(
@@ -222,7 +221,7 @@ def _clear_existing_image(session, country, page_slot, timeout):
         )
     except NeedsManual:
         return False
-    if not session.evaluate(_click_delete_confirm_js(page_slot)):
+    if not _click_visible_confirm(session, page_slot):
         return False
     try:
         _wait_until(
@@ -596,22 +595,151 @@ def _matched_boxes_js(section_selector, page_slot):
     }})()"""
 
 
-def _delete_count_js(section_selector, page_slot):
-    icon = json.dumps(DELETE_ICON_SELECTOR)
+_VISIBLE_FN_JS = """
+      const visible = (el) => {
+        if (!el) return false;
+        const style = getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden'
+          && Number(style.opacity) > 0 && rect.width > 0 && rect.height > 0;
+      };
+"""
+
+
+def _wait_for_delete_button(session, section_selector, page_slot, timeout):
+    """把鼠标放在这一格上，直到出现恰好一颗可见的删除按钮。
+
+    垃圾桶可能要等格子进入画面，或鼠标移上去之后才画出来。只查一次会把这种格子直接判成删不掉。
+    """
+    started = time.monotonic()
+    deadline = started + float(timeout)
+    ready_js = (
+        "(() => { const state = document.readyState;"
+        f" const ok = {_delete_button_ready_js(section_selector, page_slot)};"
+        " return (state === 'interactive' || state === 'complete') && !!ok; })()"
+    )
+    while True:
+        _hover_slot(session, section_selector, page_slot)
+        if session.evaluate(ready_js):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.25)
+
+
+def _hover_slot(session, section_selector, page_slot):
+    """把鼠标移到这一格的图片中心，让悬停才出现的删除按钮画出来。"""
+    return _move_mouse(session, session.evaluate(_slot_center_js(section_selector, page_slot)) or {})
+
+
+def _click_visible_delete(session, section_selector, page_slot):
+    """点这一格里那一颗可见的删除按钮。坐标点击失败时再退回元素 click。"""
+    point = session.evaluate(_delete_button_point_js(section_selector, page_slot)) or {}
+    if _trusted_click(session, point):
+        return True
+    return bool(session.evaluate(_click_delete_js(section_selector, page_slot)))
+
+
+def _click_visible_confirm(session, page_slot):
+    """点确认框里那一颗可见的确定按钮。坐标点击失败时再退回元素 click。"""
+    point = session.evaluate(_confirm_button_point_js(page_slot)) or {}
+    if _trusted_click(session, point):
+        return True
+    return bool(session.evaluate(_click_delete_confirm_js(page_slot)))
+
+
+def _move_mouse(session, point):
+    xy = _point_xy(point)
+    if xy is None:
+        return False
+    x, y = xy
+    try:
+        session.call("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y})
+    except BrowserConnectionError:
+        return False
+    return True
+
+
+def _trusted_click(session, point):
+    """用调试协议发一次真实点击。页面上的 .click() 没有用户手势，悬停按钮经常不响应。"""
+    xy = _point_xy(point)
+    if xy is None:
+        return False
+    x, y = xy
+    try:
+        session.call("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y})
+        session.call(
+            "Input.dispatchMouseEvent",
+            {"type": "mousePressed", "x": x, "y": y, "button": "left", "buttons": 1, "clickCount": 1},
+        )
+        session.call(
+            "Input.dispatchMouseEvent",
+            {"type": "mouseReleased", "x": x, "y": y, "button": "left", "buttons": 0, "clickCount": 1},
+        )
+    except BrowserConnectionError:
+        return False
+    return True
+
+
+def _point_xy(point):
+    if not isinstance(point, dict):
+        return None
+    x = point.get("x")
+    y = point.get("y")
+    if isinstance(x, bool) or isinstance(y, bool):
+        return None
+    if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+        return None
+    return float(x), float(y)
+
+
+def _slot_center_js(section_selector, page_slot):
+    """这一格图片的中心。先滚进画面，坐标用视口位置。"""
     return f"""(() => {{
       const boxes = {_matched_boxes_js(section_selector, page_slot)};
-      if (boxes.length !== 1) return 0;
-      return boxes[0].querySelectorAll({icon}).length;
+      if (boxes.length !== 1) return null;
+      const el = boxes[0].querySelector('img') || boxes[0];
+      el.scrollIntoView({{block:'center'}});
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      return {{x: rect.left + rect.width / 2, y: rect.top + rect.height / 2}};
     }})()"""
 
 
-def _click_delete_js(section_selector, page_slot):
-    """只点击这一格里那一个删除按钮。"""
+def _delete_button_ready_js(section_selector, page_slot):
+    """这一格里恰好一颗可见的删除按钮。藏起来的不算。"""
     icon = json.dumps(DELETE_ICON_SELECTOR)
     return f"""(() => {{
       const boxes = {_matched_boxes_js(section_selector, page_slot)};
       if (boxes.length !== 1) return false;
-      const icons = [...boxes[0].querySelectorAll({icon})];
+      {_VISIBLE_FN_JS}
+      return [...boxes[0].querySelectorAll({icon})].filter(visible).length === 1;
+    }})()"""
+
+
+def _delete_button_point_js(section_selector, page_slot):
+    """可见删除按钮的中心。没有恰好一颗时返回 null。"""
+    icon = json.dumps(DELETE_ICON_SELECTOR)
+    return f"""(() => {{
+      const boxes = {_matched_boxes_js(section_selector, page_slot)};
+      if (boxes.length !== 1) return null;
+      {_VISIBLE_FN_JS}
+      const icons = [...boxes[0].querySelectorAll({icon})].filter(visible);
+      if (icons.length !== 1) return null;
+      icons[0].scrollIntoView({{block:'center'}});
+      const rect = icons[0].getBoundingClientRect();
+      return {{x: rect.left + rect.width / 2, y: rect.top + rect.height / 2}};
+    }})()"""
+
+
+def _click_delete_js(section_selector, page_slot):
+    """只点击这一格里那一颗可见的删除按钮。"""
+    icon = json.dumps(DELETE_ICON_SELECTOR)
+    return f"""(() => {{
+      const boxes = {_matched_boxes_js(section_selector, page_slot)};
+      if (boxes.length !== 1) return false;
+      {_VISIBLE_FN_JS}
+      const icons = [...boxes[0].querySelectorAll({icon})].filter(visible);
       if (icons.length !== 1) return false;
       icons[0].scrollIntoView({{block:'center'}});
       icons[0].click();
@@ -642,6 +770,21 @@ def _delete_confirm_ready_js(page_slot):
     }})()"""
 
 
+def _confirm_button_point_js(page_slot):
+    """可见确认框里那一颗确定按钮的中心。"""
+    del page_slot
+    button = json.dumps(DELETE_CONFIRM_BUTTON_SELECTOR)
+    return f"""(() => {{
+      const modals = {_visible_confirm_modals_js()};
+      if (modals.length !== 1) return null;
+      {_VISIBLE_FN_JS}
+      const buttons = [...modals[0].querySelectorAll({button})].filter(visible);
+      if (buttons.length !== 1) return null;
+      const rect = buttons[0].getBoundingClientRect();
+      return {{x: rect.left + rect.width / 2, y: rect.top + rect.height / 2}};
+    }})()"""
+
+
 def _click_delete_confirm_js(page_slot):
     """只点确认框里 data-capture 为 variant-delete-confirmation-submit 的那一颗。"""
     del page_slot
@@ -649,7 +792,8 @@ def _click_delete_confirm_js(page_slot):
     return f"""(() => {{
       const modals = {_visible_confirm_modals_js()};
       if (modals.length !== 1) return false;
-      const buttons = [...modals[0].querySelectorAll({button})];
+      {_VISIBLE_FN_JS}
+      const buttons = [...modals[0].querySelectorAll({button})].filter(visible);
       if (buttons.length !== 1) return false;
       buttons[0].click();
       return true;

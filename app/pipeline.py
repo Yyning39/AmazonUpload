@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from app.aplus_upload import open_matched_description, search_description, submit_for_approval
+from app.aplus_upload import AplusNotFound, open_matched_description, search_description, submit_for_approval
 from app.browser import (
     close_browser,
     connect_country,
@@ -25,6 +25,7 @@ def upload_from_excel(excel_path, picture_root, database_path, log_path=None, ti
 
     先按 country 拉起独立 Chrome 并连接，再按 market 选站点。
     picture 为真时先按 src 把图片存成 01、02、03，再进入图片页上传。A+introduction 为真时切换到描述页，搜索后点进第一条匹配的商品描述，再提交到状态为已提交。
+    没有可提交的 A+ 时跳过描述这一侧，不算失败。图片已完成则整行仍是完成；只做描述时整行记为跳过。
     图片失败不挡住描述页。两列都为假则跳过。
     """
     _notify(on_progress, "正在读取 Excel", 0, 0)
@@ -119,20 +120,26 @@ def _run_picture(session, row, keyword, picture_root, log_path, timeout, on_prog
 
 
 def _run_description(session, row, timeout):
-    """切换到描述页，搜索后点进匹配描述，再提交到状态为已提交。"""
+    """切换到描述页，搜索后点进匹配描述，再提交到状态为已提交。
+
+    搜完没有可提交的草稿时跳过，不算失败。
+    """
     try:
         switch_to_description_page(session, row["country"], timeout=timeout)
         before = search_description(session, row["asin"], row["sku"], timeout=timeout)
         open_matched_description(session, row["sku"], timeout=timeout, previous=before)
         submit_for_approval(session, timeout=timeout)
+    except AplusNotFound as exc:
+        return {"ok": True, "skipped": True, "reason": str(exc)}
     except Exception as exc:
         return {"ok": False, "reason": str(exc)}
     return {"ok": True, "reason": ""}
 
 
 def _combine_outcome(row, picture_outcome, description_outcome):
-    """两列都判断。要求做的部分都成功才是完成。"""
+    """两列都判断。要求做的部分都成功才是完成。没有可提交的 A+ 不算失败。"""
     ok = True
+    aplus_skipped = False
     parts = []
     if row["picture"]:
         if picture_outcome and picture_outcome["ok"]:
@@ -144,7 +151,11 @@ def _combine_outcome(row, picture_outcome, description_outcome):
     else:
         parts.append("图片：不上传")
     if row["A+introduction"]:
-        if description_outcome and description_outcome["ok"]:
+        if description_outcome and description_outcome.get("skipped"):
+            aplus_skipped = True
+            detail = description_outcome.get("reason") or "没有可提交的草稿"
+            parts.append("描述：跳过（" + detail + "）")
+        elif description_outcome and description_outcome["ok"]:
             parts.append("描述：已提交")
         else:
             ok = False
@@ -152,7 +163,13 @@ def _combine_outcome(row, picture_outcome, description_outcome):
             parts.append("描述：" + reason)
     else:
         parts.append("描述：不打开")
-    return ("完成" if ok else "失败", "；".join(parts))
+    if not ok:
+        status = "失败"
+    elif aplus_skipped and not row["picture"]:
+        status = "跳过"
+    else:
+        status = "完成"
+    return (status, "；".join(parts))
 
 
 def _row_result(row, status, reason, slots=None):

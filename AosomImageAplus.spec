@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('config', 'config')]
+datas = [('config/settings.json', 'config')]
 binaries = []
 hiddenimports = []
 tmp_ret = collect_all('tkinterdnd2')
