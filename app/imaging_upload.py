@@ -37,11 +37,6 @@ URL_IMAGE_SELECTOR = '[data-testid="url-image"]'
 UPLOADED_IMAGE_SELECTOR = f"{NEWLY_UPLOADED_IMAGE_SELECTOR}, {URL_IMAGE_SELECTOR}"
 DASHED_SLOT_SELECTOR = '[data-testid="image-slot-dashed"]'
 PENDING_SELECTOR = '[class*="status-pending"]'
-# 有图格子里的垃圾桶。同一颗上有 data-testid，也有 data-capture，无文字。
-DELETE_ICON_SELECTOR = '[data-testid="delete-icon"], [data-capture="variant-delete-button"]'
-# 点垃圾桶后出现的确认框。确定按钮用 data-capture，不看按钮文字。
-DELETE_CONFIRM_MODAL_SELECTOR = '[data-testid="delete-confirmation-modal"]'
-DELETE_CONFIRM_BUTTON_SELECTOR = '[data-capture="variant-delete-confirmation-submit"]'
 
 IMAGE_EXTENSIONS = {".gif", ".pjp", ".jfif", ".jpe", ".pjpeg", ".jpeg", ".jpg", ".png"}
 
@@ -89,12 +84,13 @@ def _element_state_js(selector):
     )
 
 
-def upload_images(session, keyword, country, directory, timeout=30, log_path=None, log_context=None, on_progress=None):
+def upload_images(session, keyword, country, directory, timeout=30, log_path=None, log_context=None, on_progress=None, before_each=None):
     """搜索关键词，并把目录里的图片逐位上传。
 
     directory 是 picture/<国家代码>/<sku>/<站点代码>。
     country 决定页面上的站点模块。
-    返回每张数字图片的结果。01 对应国家模块里的第一个框。
+    返回每张数字图片的结果。0 对应 MAIN，01 对应 PT01，02 对应 PT02，依次类推。
+    不上传 FRONT、SIDE、BACK。
     """
     code = country_code(country)
     text = str(keyword or "").strip()
@@ -107,7 +103,7 @@ def upload_images(session, keyword, country, directory, timeout=30, log_path=Non
     if on_progress:
         on_progress("打开国家模块")
     _reveal_country(session, code, timeout)
-    return _upload_slots(session, code, directory, timeout, log_path, log_context, on_progress)
+    return _upload_slots(session, code, directory, timeout, log_path, log_context, on_progress, before_each)
 
 
 def _search(session, keyword, timeout):
@@ -157,10 +153,11 @@ def _reveal_country(session, country, timeout):
     )
 
 
-def _upload_slots(session, country, directory, timeout, log_path=None, log_context=None, on_progress=None):
-    """只处理文件夹里有的数字图片。01 是第一个框，缺号不前移。
+def _upload_slots(session, country, directory, timeout, log_path=None, log_context=None, on_progress=None, before_each=None):
+    """只处理文件夹里的数字图片。0 上传到 MAIN，01 上传到 PT01，缺号不前移。
 
-    没有对应文件的格子保持原样。有文件时，这一格已有图就先删再传，没有图就直接传。
+    不上传 FRONT、SIDE、BACK。目标位置名在页面上不是恰好一个时，这一张记失败，不改传别的格子。
+    没有对应文件的格子保持原样。有图时把新文件交给这一格的文件框覆盖，不先删原图。
     错误留在返回列表里，不写 Excel。
     """
     images = _numbered_images(directory)
@@ -171,11 +168,13 @@ def _upload_slots(session, country, directory, timeout, log_path=None, log_conte
     previous = _box_states(session, country)
     for number, path in images:
         file_stem = f"{number:02d}"
-        page_slot = slots[number - 1] if 1 <= number <= len(slots) else ""
+        page_slot = _page_slot_name(number)
+        if before_each:
+            before_each()
         if on_progress:
             on_progress(f"上传 {file_stem}")
-        if not page_slot:
-            item = _result(file_stem, "", "失败", f"{file_stem}位置图片待审核", path)
+        if not page_slot or page_slot in _SKIPPED_PAGE_SLOTS or slots.count(page_slot) != 1:
+            item = _result(file_stem, page_slot, "失败", f"{page_slot or file_stem}位置图片待审核", path)
         else:
             item = _upload_or_record(session, country, page_slot, path, file_stem, timeout)
         current = _box_states(session, country)
@@ -189,9 +188,7 @@ def _upload_slots(session, country, directory, timeout, log_path=None, log_conte
 
 
 def _upload_or_record(session, country, page_slot, path, file_stem, timeout):
-    """有图先删再传。删不掉就不传。错误文字留给后面统一回写。"""
-    if not _clear_existing_image(session, country, page_slot, timeout):
-        return _result(file_stem, page_slot, "失败", f"{page_slot}位置原有图片无法删除，未上传新图", path)
+    """把文件交给这一格的文件框。格子里已有图时直接覆盖，不点删除。"""
     try:
         _upload_one(session, country, page_slot, path, timeout)
     except UploadNotConfirmed:
@@ -199,41 +196,6 @@ def _upload_or_record(session, country, page_slot, path, file_stem, timeout):
     except (NeedsManual, BrowserConnectionError):
         return _result(file_stem, page_slot, "失败", f"{page_slot}位置图片待审核", path)
     return _result(file_stem, page_slot, "成功", "", path)
-
-
-def _clear_existing_image(session, country, page_slot, timeout):
-    """这一格没有图时直接返回。有图则先把鼠标移到格子上，等到可见的删除按钮再点，然后点确认框里的删除。"""
-    selector = _country_selector(country)
-    state = session.evaluate(_slot_image_state_js(selector, page_slot)) or {}
-    if not _already_uploaded(state):
-        return True
-    if not _wait_for_delete_button(session, selector, page_slot, timeout):
-        return False
-    if not _click_visible_delete(session, selector, page_slot):
-        return False
-    try:
-        _wait_until(
-            session,
-            _delete_confirm_ready_js(page_slot),
-            timeout,
-            f"{page_slot} 删除确认框未出现",
-            DELETE_CONFIRM_MODAL_SELECTOR,
-        )
-    except NeedsManual:
-        return False
-    if not _click_visible_confirm(session, page_slot):
-        return False
-    try:
-        _wait_until(
-            session,
-            _delete_finished_js(selector, page_slot),
-            timeout,
-            f"{page_slot} 删除未确认",
-            DELETE_CONFIRM_MODAL_SELECTOR,
-        )
-    except NeedsManual:
-        return False
-    return True
 
 
 def _upload_one(session, country, page_slot, path, timeout):
@@ -279,6 +241,19 @@ def _wait_for_slot(session, section_selector, page_slot, timeout):
                 f"等待上传位超时：{page_slot} {FILE_INPUT_SELECTOR}，等了 {elapsed:.1f} 秒，readyState={ready}"
             )
         time.sleep(0.25)
+
+
+# 这些位置名不接收本次图片。页面上若写成 FRNT，同样跳过。
+_SKIPPED_PAGE_SLOTS = {"FRONT", "SIDE", "BACK", "FRNT"}
+
+
+def _page_slot_name(number):
+    """文件名序号对应的页面位置。0 是 MAIN，01 是 PT01，02 是 PT02。"""
+    if number == 0:
+        return "MAIN"
+    if number >= 1:
+        return f"PT{number:02d}"
+    return ""
 
 
 def _numbered_images(directory):
@@ -570,263 +545,11 @@ def _slot_image_state_js(section_selector, page_slot):
     }})()"""
 
 
-def _already_uploaded(state):
-    """页面上这一格已经显示上传后的图片。"""
-    testid = str((state or {}).get("testid") or "")
-    src = str((state or {}).get("src") or "").strip()
-    return bool(src) and testid in {"newly-uploaded-image", "url-image"}
-
-
-def _matched_boxes_js(section_selector, page_slot):
-    """国家模块里位置名恰好匹配的格子。整页其他国家的格子不算。"""
-    section = json.dumps(section_selector)
-    box = json.dumps(SLOT_BOX_SELECTOR)
-    variant = json.dumps(VARIANT_SELECTOR)
-    slot = json.dumps(page_slot)
-    return f"""(() => {{
-      const section = document.querySelector({section});
-      if (!section) return [];
-      return [...section.querySelectorAll({box})].filter(item => {{
-        const markers = [...item.querySelectorAll({variant})];
-        if (markers.length !== 1) return false;
-        const text = (markers[0].innerText || '').trim().split(/\\s+/)[0];
-        return text === {slot};
-      }});
-    }})()"""
-
-
-_VISIBLE_FN_JS = """
-      const visible = (el) => {
-        if (!el) return false;
-        const style = getComputedStyle(el);
-        const rect = el.getBoundingClientRect();
-        return style.display !== 'none' && style.visibility !== 'hidden'
-          && Number(style.opacity) > 0 && rect.width > 0 && rect.height > 0;
-      };
-"""
-
-
-def _wait_for_delete_button(session, section_selector, page_slot, timeout):
-    """把鼠标放在这一格上，直到出现恰好一颗可见的删除按钮。
-
-    垃圾桶可能要等格子进入画面，或鼠标移上去之后才画出来。只查一次会把这种格子直接判成删不掉。
-    """
-    started = time.monotonic()
-    deadline = started + float(timeout)
-    ready_js = (
-        "(() => { const state = document.readyState;"
-        f" const ok = {_delete_button_ready_js(section_selector, page_slot)};"
-        " return (state === 'interactive' || state === 'complete') && !!ok; })()"
-    )
-    while True:
-        _hover_slot(session, section_selector, page_slot)
-        if session.evaluate(ready_js):
-            return True
-        if time.monotonic() >= deadline:
-            return False
-        time.sleep(0.25)
-
-
-def _hover_slot(session, section_selector, page_slot):
-    """把鼠标移到这一格的图片中心，让悬停才出现的删除按钮画出来。"""
-    return _move_mouse(session, session.evaluate(_slot_center_js(section_selector, page_slot)) or {})
-
-
-def _click_visible_delete(session, section_selector, page_slot):
-    """点这一格里那一颗可见的删除按钮。坐标点击失败时再退回元素 click。"""
-    point = session.evaluate(_delete_button_point_js(section_selector, page_slot)) or {}
-    if _trusted_click(session, point):
-        return True
-    return bool(session.evaluate(_click_delete_js(section_selector, page_slot)))
-
-
-def _click_visible_confirm(session, page_slot):
-    """点确认框里那一颗可见的确定按钮。坐标点击失败时再退回元素 click。"""
-    point = session.evaluate(_confirm_button_point_js(page_slot)) or {}
-    if _trusted_click(session, point):
-        return True
-    return bool(session.evaluate(_click_delete_confirm_js(page_slot)))
-
-
-def _move_mouse(session, point):
-    xy = _point_xy(point)
-    if xy is None:
-        return False
-    x, y = xy
-    try:
-        session.call("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y})
-    except BrowserConnectionError:
-        return False
-    return True
-
-
-def _trusted_click(session, point):
-    """用调试协议发一次真实点击。页面上的 .click() 没有用户手势，悬停按钮经常不响应。"""
-    xy = _point_xy(point)
-    if xy is None:
-        return False
-    x, y = xy
-    try:
-        session.call("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y})
-        session.call(
-            "Input.dispatchMouseEvent",
-            {"type": "mousePressed", "x": x, "y": y, "button": "left", "buttons": 1, "clickCount": 1},
-        )
-        session.call(
-            "Input.dispatchMouseEvent",
-            {"type": "mouseReleased", "x": x, "y": y, "button": "left", "buttons": 0, "clickCount": 1},
-        )
-    except BrowserConnectionError:
-        return False
-    return True
-
-
-def _point_xy(point):
-    if not isinstance(point, dict):
-        return None
-    x = point.get("x")
-    y = point.get("y")
-    if isinstance(x, bool) or isinstance(y, bool):
-        return None
-    if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
-        return None
-    return float(x), float(y)
-
-
-def _slot_center_js(section_selector, page_slot):
-    """这一格图片的中心。先滚进画面，坐标用视口位置。"""
-    return f"""(() => {{
-      const boxes = {_matched_boxes_js(section_selector, page_slot)};
-      if (boxes.length !== 1) return null;
-      const el = boxes[0].querySelector('img') || boxes[0];
-      el.scrollIntoView({{block:'center'}});
-      const rect = el.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return null;
-      return {{x: rect.left + rect.width / 2, y: rect.top + rect.height / 2}};
-    }})()"""
-
-
-def _delete_button_ready_js(section_selector, page_slot):
-    """这一格里恰好一颗可见的删除按钮。藏起来的不算。"""
-    icon = json.dumps(DELETE_ICON_SELECTOR)
-    return f"""(() => {{
-      const boxes = {_matched_boxes_js(section_selector, page_slot)};
-      if (boxes.length !== 1) return false;
-      {_VISIBLE_FN_JS}
-      return [...boxes[0].querySelectorAll({icon})].filter(visible).length === 1;
-    }})()"""
-
-
-def _delete_button_point_js(section_selector, page_slot):
-    """可见删除按钮的中心。没有恰好一颗时返回 null。"""
-    icon = json.dumps(DELETE_ICON_SELECTOR)
-    return f"""(() => {{
-      const boxes = {_matched_boxes_js(section_selector, page_slot)};
-      if (boxes.length !== 1) return null;
-      {_VISIBLE_FN_JS}
-      const icons = [...boxes[0].querySelectorAll({icon})].filter(visible);
-      if (icons.length !== 1) return null;
-      icons[0].scrollIntoView({{block:'center'}});
-      const rect = icons[0].getBoundingClientRect();
-      return {{x: rect.left + rect.width / 2, y: rect.top + rect.height / 2}};
-    }})()"""
-
-
-def _click_delete_js(section_selector, page_slot):
-    """只点击这一格里那一颗可见的删除按钮。"""
-    icon = json.dumps(DELETE_ICON_SELECTOR)
-    return f"""(() => {{
-      const boxes = {_matched_boxes_js(section_selector, page_slot)};
-      if (boxes.length !== 1) return false;
-      {_VISIBLE_FN_JS}
-      const icons = [...boxes[0].querySelectorAll({icon})].filter(visible);
-      if (icons.length !== 1) return false;
-      icons[0].scrollIntoView({{block:'center'}});
-      icons[0].click();
-      return true;
-    }})()"""
-
-
-def _visible_confirm_modals_js():
-    """当前可见的删除确认框。隐藏的不算。"""
-    modal = json.dumps(DELETE_CONFIRM_MODAL_SELECTOR)
-    return f"""(() => {{
-      return [...document.querySelectorAll({modal})].filter(el => {{
-        const style = getComputedStyle(el);
-        const rect = el.getBoundingClientRect();
-        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
-      }});
-    }})()"""
-
-
-def _delete_confirm_ready_js(page_slot):
-    """恰好一个可见确认框，并且里面恰好一颗确定按钮。不看按钮文字。"""
-    del page_slot
-    button = json.dumps(DELETE_CONFIRM_BUTTON_SELECTOR)
-    return f"""(() => {{
-      const modals = {_visible_confirm_modals_js()};
-      if (modals.length !== 1) return false;
-      return modals[0].querySelectorAll({button}).length === 1;
-    }})()"""
-
-
-def _confirm_button_point_js(page_slot):
-    """可见确认框里那一颗确定按钮的中心。"""
-    del page_slot
-    button = json.dumps(DELETE_CONFIRM_BUTTON_SELECTOR)
-    return f"""(() => {{
-      const modals = {_visible_confirm_modals_js()};
-      if (modals.length !== 1) return null;
-      {_VISIBLE_FN_JS}
-      const buttons = [...modals[0].querySelectorAll({button})].filter(visible);
-      if (buttons.length !== 1) return null;
-      const rect = buttons[0].getBoundingClientRect();
-      return {{x: rect.left + rect.width / 2, y: rect.top + rect.height / 2}};
-    }})()"""
-
-
-def _click_delete_confirm_js(page_slot):
-    """只点确认框里 data-capture 为 variant-delete-confirmation-submit 的那一颗。"""
-    del page_slot
-    button = json.dumps(DELETE_CONFIRM_BUTTON_SELECTOR)
-    return f"""(() => {{
-      const modals = {_visible_confirm_modals_js()};
-      if (modals.length !== 1) return false;
-      {_VISIBLE_FN_JS}
-      const buttons = [...modals[0].querySelectorAll({button})].filter(visible);
-      if (buttons.length !== 1) return false;
-      buttons[0].click();
-      return true;
-    }})()"""
-
-
-def _delete_finished_js(section_selector, page_slot):
-    """确认框已关上，并且这一格的图已经没有。"""
-    return f"({_slot_cleared_js(section_selector, page_slot)}) && ({_visible_confirm_modals_js()}).length === 0"
-
-
-def _slot_cleared_js(section_selector, page_slot):
-    """这一格不再有上传后的图片。临时图和亚马逊图片地址都算还没删掉。"""
-    uploaded = json.dumps(UPLOADED_IMAGE_SELECTOR)
-    fresh = json.dumps("newly-uploaded-image")
-    hosted = json.dumps("url-image")
-    return f"""(() => {{
-      const boxes = {_matched_boxes_js(section_selector, page_slot)};
-      if (boxes.length !== 1) return false;
-      const img = boxes[0].querySelector({uploaded});
-      if (!img) return true;
-      const src = img.currentSrc || img.src || '';
-      const testid = img.getAttribute('data-testid') || '';
-      return !(src && (testid === {fresh} || testid === {hosted}));
-    }})()"""
-
-
 def _slot_success_js(section_selector, page_slot, previous_src):
-    """这一格出现上传后的图片即完成。
+    """这一格的图片地址必须和上传前不同。
 
-    刚传完是 newly-uploaded-image，页面上这时已经显示成功。
-    随后换成 url-image 的亚马逊图片地址，审核中和审核完都算完成。
-    亚马逊地址必须和上传前不同，避免把原来的图当成这次成功。
+    空格子出现新地址即完成。已有图时，原地址还在就还没覆盖上。
+    刚传完是 newly-uploaded-image，随后换成 url-image 的亚马逊地址也算完成。
     """
     section = json.dumps(section_selector)
     box = json.dumps(SLOT_BOX_SELECTOR)
@@ -846,8 +569,7 @@ def _slot_success_js(section_selector, page_slot, previous_src):
       }});
       if (boxes.length !== 1) return false;
       const item = boxes[0];
-      if (item.querySelector({fresh})) return true;
-      const img = item.querySelector({hosted});
+      const img = item.querySelector({fresh}) || item.querySelector({hosted});
       const src = img ? (img.currentSrc || img.src || '') : '';
       return !!src && src !== {previous};
     }})()"""
