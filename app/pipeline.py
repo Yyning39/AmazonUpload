@@ -1,196 +1,27 @@
-"""按固定顺序串联各阶段。"""
+"""Excel 读入后走和数据库任务相同的执行，并把状态写回 Excel。"""
 
+import logging
 from pathlib import Path
 
-from app.aplus_upload import AplusNotFound, open_matched_description, search_description, submit_for_approval
-from app.browser import (
-    close_browser,
-    connect_country,
-    port_for,
-    return_to_imaging_manage,
-    switch_site,
-    switch_to_description_page,
-)
-from app.excel_io import read_workbook
-from app.imaging_upload import upload_images
-from app.picture_save import picture_directory, save_numbered_pictures
-from app.queue_store import close_store, enqueue, list_queue, open_store, update_status
+from app.config_loader import bundle_dir, load_config
+from app.excel_io import read_workbook, write_task_row
+from app.logging_setup import log_business
+from app.picture_save import parse_image_addresses
+from app.progress_feed import describe
+from app.queue_store import close_store, load_task, open_store, save_excel_task, set_task_status
+from app.task_check import check_excel
+from app.task_record import record_enqueue_rejection
+from app.task_run import run_prepared
 
 # 图片目录：D:\aosom\data\picture\<国家代码>\<sku>\<站点代码>
 PICTURE_ROOT = Path(r"D:\aosom\data\picture")
+_FINISHED = {"成功", "失败", "待人工"}
 
 
-def upload_from_excel(excel_path, picture_root, database_path, log_path=None, timeout=30, on_progress=None):
-    """Excel 入库后按两列分别处理。不回写 Excel。
-
-    先按 country 拉起独立 Chrome 并连接，再按 market 选站点。
-    picture 为真时先按 src 把图片存成 01、02、03，再进入图片页上传。A+introduction 为真时切换到描述页，搜索后点进第一条匹配的商品描述，再提交到状态为已提交。
-    没有可提交的 A+ 时跳过描述这一侧，不算失败。图片已完成则整行仍是完成；只做描述时整行记为跳过。
-    图片失败不挡住描述页。两列都为假则跳过。
-    """
-    _notify(on_progress, "正在读取 Excel", 0, 0)
-    rows = read_workbook(excel_path)
-    store = open_store(database_path)
-    results = []
-    try:
-        start = len(list_queue(store))
-        enqueue(store, rows)
-        queued = list_queue(store)[start:]
-        total = len(queued)
-        _notify(on_progress, f"共 {total} 行", 0, total)
-        for index, row in enumerate(queued, 1):
-            results.append(_upload_queued_row(store, row, picture_root, log_path, timeout, on_progress, index, total))
-        queued = [item for item in list_queue(store) if item["id"] >= queued[0]["id"]] if queued else []
-        _notify(on_progress, "全部处理完", total or 1, total or 1)
-    finally:
-        close_store(store)
-    return {"excel": rows, "queued": queued, "results": results}
-
-
-def _upload_queued_row(store, row, picture_root, log_path, timeout, on_progress=None, index=1, total=1):
-    name = str(row["sku"] or "").strip() or str(row["asin"] or "").strip() or "未命名"
-    place = f"{row['country']} / {row['market']}"
-
-    def step(text, done=None):
-        _notify(on_progress, f"第 {index}/{total} 行 {name} {place} {text}", index - 1 if done is None else done, total)
-
-    if not row["picture"] and not row["A+introduction"]:
-        update_status(store, row["id"], "跳过")
-        step("跳过", index)
-        return _row_result(row, "跳过", "图片：不上传；描述：不打开")
-    keyword = str(row["sku"] or "").strip() or str(row["asin"] or "").strip()
-    session = None
-    picture_outcome = None
-    description_outcome = None
-    try:
-        step("连接 Chrome")
-        session = connect_country(row["country"], timeout=timeout)
-        step("切换站点")
-        switch_site(session, row["market"], timeout=timeout)
-        if row["picture"]:
-            step("上传图片")
-            picture_outcome = _run_picture(session, row, keyword, picture_root, log_path, timeout, lambda text: step(text))
-        if row["A+introduction"]:
-            step("提交 A+")
-            description_outcome = _run_description(session, row, timeout)
-    except Exception as exc:
-        update_status(store, row["id"], "失败")
-        step("失败：" + str(exc).replace("\n", " ")[:120], index)
-        return _row_result(row, "失败", str(exc))
-    finally:
-        close_browser(session)
-    status, reason = _combine_outcome(row, picture_outcome, description_outcome)
-    update_status(store, row["id"], status)
-    step(status, index)
-    slots = None if picture_outcome is None else picture_outcome.get("slots")
-    return _row_result(row, status, reason, slots)
-
-
-def _run_picture(session, row, keyword, picture_root, log_path, timeout, on_progress=None):
-    """先按 src 把图片存成 01、02、03，再进入图片页上传。失败只记在这一边，不挡住描述页。"""
-    try:
-        folder = picture_directory(picture_root, row["country"], row["sku"], row["market"])
-        save_numbered_pictures(folder, row["src"])
-        return_to_imaging_manage(session, row["country"], timeout=timeout)
-        slots = upload_images(
-            session,
-            keyword,
-            row["market"],
-            folder,
-            timeout=timeout,
-            log_path=log_path,
-            on_progress=on_progress,
-            log_context={
-                "port": port_for(row["country"]),
-                "keyword": keyword,
-                "sku": row["sku"],
-                "asin": row["asin"],
-                "country": row["country"],
-                "market": row["market"],
-            },
-        )
-    except Exception as exc:
-        return {"ok": False, "reason": str(exc), "slots": None}
-    failed = [item for item in slots if item.get("status") != "成功"]
-    if not slots:
-        return {"ok": False, "reason": "没有读到数字图片", "slots": slots}
-    if failed:
-        return {"ok": False, "reason": failed[0].get("reason") or "有图片未成功", "slots": slots}
-    return {"ok": True, "reason": "", "slots": slots}
-
-
-def _run_description(session, row, timeout):
-    """切换到描述页，搜索后点进匹配描述，再提交到状态为已提交。
-
-    搜完没有可提交的草稿时跳过，不算失败。
-    """
-    try:
-        switch_to_description_page(session, row["country"], timeout=timeout)
-        before = search_description(session, row["asin"], row["sku"], timeout=timeout)
-        open_matched_description(session, row["sku"], timeout=timeout, previous=before)
-        submit_for_approval(session, timeout=timeout)
-    except AplusNotFound as exc:
-        return {"ok": True, "skipped": True, "reason": str(exc)}
-    except Exception as exc:
-        return {"ok": False, "reason": str(exc)}
-    return {"ok": True, "reason": ""}
-
-
-def _combine_outcome(row, picture_outcome, description_outcome):
-    """两列都判断。要求做的部分都成功才是完成。没有可提交的 A+ 不算失败。"""
-    ok = True
-    aplus_skipped = False
-    parts = []
-    if row["picture"]:
-        if picture_outcome and picture_outcome["ok"]:
-            parts.append("图片：完成")
-        else:
-            ok = False
-            reason = "" if picture_outcome is None else picture_outcome.get("reason") or "未完成"
-            parts.append("图片：" + reason)
-    else:
-        parts.append("图片：不上传")
-    if row["A+introduction"]:
-        if description_outcome and description_outcome.get("skipped"):
-            aplus_skipped = True
-            detail = description_outcome.get("reason") or "没有可提交的草稿"
-            parts.append("描述：跳过（" + detail + "）")
-        elif description_outcome and description_outcome["ok"]:
-            parts.append("描述：已提交")
-        else:
-            ok = False
-            reason = "" if description_outcome is None else description_outcome.get("reason") or "未完成"
-            parts.append("描述：" + reason)
-    else:
-        parts.append("描述：不打开")
-    if not ok:
-        status = "失败"
-    elif aplus_skipped and not row["picture"]:
-        status = "跳过"
-    else:
-        status = "完成"
-    return (status, "；".join(parts))
-
-
-def _row_result(row, status, reason, slots=None):
-    item = {
-        "sku": row["sku"],
-        "asin": row["asin"],
-        "country": row["country"],
-        "market": row["market"],
-        "status": status,
-        "reason": reason,
-    }
-    if slots is not None:
-        item["slots"] = slots
-    return item
-
-
-def run(excel_path, database_path, log_path, picture_root=None, timeout=30, on_progress=None):
-    """窗口选中的 Excel 进入 upload_from_excel。
-
-    先选站点。picture 为真做图片页，A+introduction 为真做描述页并提交。不回写 Excel。
-    """
+def run(excel_path, database_path, log_path, picture_root=None, timeout=30, on_progress=None, config=None, aplus_log_path=None):
+    """窗口选中的 Excel 读入、执行，并把状态写回这张表。"""
+    if config is None:
+        config = load_config(bundle_dir() / "config" / "settings.json")
     return upload_from_excel(
         excel_path,
         picture_root or PICTURE_ROOT,
@@ -198,6 +29,114 @@ def run(excel_path, database_path, log_path, picture_root=None, timeout=30, on_p
         log_path,
         timeout,
         on_progress,
+        config,
+        aplus_log_path,
+    )
+
+
+def upload_from_excel(excel_path, picture_root, database_path, log_path=None, timeout=30, on_progress=None, config=None, aplus_log_path=None):
+    """按表中的状态执行。成功、失败、待人工不再跑。待重试会接着做，图片已成功则只做 A+。"""
+    _notify(on_progress, describe(config, {"origin": "excel"}, "正在读取 Excel"), 0, 0)
+    rows = read_workbook(excel_path)
+    store = open_store(database_path)
+    writer = _excel_writer(database_path)
+    results = []
+    seen = set()
+    total = len(rows)
+    try:
+        _notify(on_progress, describe(config, {"origin": "excel"}, f"共 {total} 行"), 0, total)
+        for index, row in enumerate(rows, 1):
+            task_id = str(row.get("task_id") or "").strip()
+            if task_id and task_id in seen:
+                _write_duplicate(excel_path, row)
+                results.append({"task_id": task_id, "status": "失败", "reason": "同一张表里 TASK_ID 重复"})
+                _notify(on_progress, describe(config, {"origin": "excel", "task_id": task_id}, f"第 {index}/{total} 行 TASK_ID 重复"), index, total)
+                continue
+            if task_id:
+                seen.add(task_id)
+            task = save_excel_task(store, row)
+            if task["status"] in _FINISHED:
+                results.append({"task_id": task.get("task_id"), "status": task["status"], "reason": "已结束，未再执行"})
+                _notify(on_progress, describe(config, task, f"第 {index}/{total} 行 已是{task['status']}，未再执行"), index, total)
+                continue
+            addresses = parse_image_addresses(row.get("images"))
+            problem = check_excel(task, addresses)
+            if problem is not None:
+                code, message = problem
+                log_business(logging.getLogger(__name__), task, "enqueue", "校验失败 " + code + " " + message)
+                record_enqueue_rejection(config, database_path, task, code, message, writer=writer)
+                current = load_task(store, task["id"])
+                write_task_row(excel_path, current["excel_row"], current)
+                results.append({"task_id": current.get("task_id"), "status": current["status"], "reason": message})
+                _notify(on_progress, describe(config, task, f"第 {index}/{total} 行 校验失败：{message}"), index, total)
+                continue
+            set_task_status(store, task["id"], "处理中")
+            task = load_task(store, task["id"])
+            write_task_row(excel_path, task["excel_row"], task)
+            _notify(on_progress, describe(config, task, f"第 {index}/{total} 行 开始执行"), index, total)
+            run_prepared(
+                config,
+                database_path,
+                picture_root,
+                task,
+                timeout,
+                log_path,
+                writer=writer,
+                addresses=addresses,
+                on_progress=on_progress,
+                aplus_log_path=aplus_log_path,
+            )
+            current = load_task(store, task["id"])
+            write_task_row(excel_path, current["excel_row"], current)
+            results.append({
+                "task_id": current.get("task_id"),
+                "status": current["status"],
+                "reason": current.get("error_msg") or "",
+            })
+            ending = current["status"]
+            if current.get("error_msg"):
+                ending = ending + "：" + str(current.get("error_msg"))
+            _notify(on_progress, describe(config, current, f"第 {index}/{total} 行 结束 {ending}"), index, total)
+        _notify(on_progress, describe(config, {"origin": "excel"}, "全部处理完"), total or 1, total or 1)
+    finally:
+        close_store(store)
+    return {"excel": rows, "results": results}
+
+
+def _excel_writer(database_path):
+    """状态已经写入本机 task 之后，按行号写回 Excel。不写 CL。"""
+
+    def writer(config, guid, status, error_code, error_message):
+        del config, status, error_code, error_message
+        store = open_store(database_path)
+        try:
+            found = store.execute(
+                "SELECT * FROM task WHERE amz_cross_task_guid = ?",
+                (guid,),
+            ).fetchone()
+        finally:
+            close_store(store)
+        if found is None:
+            return False
+        task = {key: found[key] for key in found.keys()}
+        write_task_row(task["excel_path"], task["excel_row"], task)
+        return True
+
+    return writer
+
+
+def _write_duplicate(excel_path, row):
+    write_task_row(
+        excel_path,
+        row["excel_row"],
+        {
+            "status": "失败",
+            "attempt": row.get("attempt") or 0,
+            "error_code": "",
+            "error_msg": "同一张表里 TASK_ID 重复",
+            "site_image_status": row.get("site_image_status") or "未执行",
+            "aplus_status": row.get("aplus_status") or "未执行",
+        },
     )
 
 

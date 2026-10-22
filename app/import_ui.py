@@ -33,7 +33,7 @@ class ImportWindow:
         ttk.Label(frame, text="网页已打开。选择或拖入一个 .xlsx 文件，随后读取并上传").pack(anchor="w")
         ttk.Label(
             frame,
-            text="表头需要：sku、asin、country、market、picture、A+introduction、src",
+            text="表头需要：task_id、sku、asin、main_country、cross_country、actions、images",
         ).pack(anchor="w", pady=(4, 12))
         self.drop_label = tk.Label(
             frame,

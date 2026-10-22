@@ -11,6 +11,10 @@ class AplusNotFound(Exception):
     """搜完仍没有可提交的 A+。调用方跳过这一侧，不算失败。"""
 
 
+class AplusAsinMismatch(Exception):
+    """已应用 ASIN 不是任务 ASIN。调用方按不可重试失败处理。"""
+
+
 # 外层在页面上。真正的 input 在 kat-input 的 shadowRoot 里。
 ASIN_INPUT_SELECTOR = 'kat-input[data-component-id="project-search-box"]'
 # SKU 搜索在表格组件的 shadowRoot 里。part 不随语言变化。
@@ -443,9 +447,64 @@ def _detail_location_js(expected):
     }})()"""
 
 
-def submit_for_approval(session, timeout=30):
+def applied_asins_match(found, expected):
+    """已应用列表去重后必须只等于这一个任务 ASIN。"""
+    wanted = str(expected or "").strip().upper()
+    seen = []
+    for item in found or []:
+        text = str(item or "").strip().upper()
+        if text and text not in seen:
+            seen.append(text)
+    return bool(wanted) and seen == [wanted]
+
+
+def confirm_applied_asin(session, asin, timeout=30):
+    """在应用 ASIN 页读已应用列表。读不到就抛 NeedsManual，读到了但不相等就抛 AplusAsinMismatch。"""
+    found = _wait_applied_asins(session, timeout)
+    if applied_asins_match(found, asin):
+        return
+    wanted = str(asin or "").strip().upper() or "空"
+    shown = "、".join(str(item).strip() for item in found if str(item).strip()) or "空"
+    raise AplusAsinMismatch(f"已应用 ASIN 是 {shown}，任务 ASIN 是 {wanted}")
+
+
+def _wait_applied_asins(session, timeout):
+    """等到应用 ASIN 页上出现 ASIN 格子。这一页还没加载出格子时不把空列表当成不匹配。"""
+    started = time.monotonic()
+    deadline = started + float(timeout)
+    while True:
+        state = session.evaluate(_applied_asins_js()) or {}
+        ready = state.get("readyState") in {"interactive", "complete"}
+        found = state.get("asins") or []
+        if ready and state.get("onPage") and found:
+            return found
+        if time.monotonic() >= deadline:
+            ready_state = state.get("readyState") or "未知"
+            raise NeedsManual(
+                f"无法读取已应用 ASIN：.ag-cell[col-id=\"asin\"]，等了 {time.monotonic() - started:.1f} 秒，readyState={ready_state}"
+            )
+        time.sleep(0.25)
+
+
+def _applied_asins_js():
+    return """(() => {
+      const path = location.pathname || '';
+      const cells = [...document.querySelectorAll('.ag-cell[col-id="asin"]')];
+      const asins = cells
+        .map(el => (el.innerText || '').replace(/\\s+/g, ' ').trim())
+        .filter(Boolean);
+      return {
+        onPage: path.indexOf('/asins/edit') >= 0,
+        readyState: document.readyState,
+        asins
+      };
+    })()"""
+
+
+def submit_for_approval(session, timeout=30, asin=""):
     """从当前详情网址的修订编号出发，依次打开四个后缀，再点弹层里的提交按钮。
 
+    打开应用 ASIN 页后，已应用 ASIN 必须等于任务 ASIN。
     按钮是提交弹层 submit-content-modal 里那颗 primary 按钮，不看按钮文字。
     成功标志是 content-details-status 里的状态值变为「已提交」。
     """
@@ -453,6 +512,8 @@ def submit_for_approval(session, timeout=30):
     base = _revision_base(href)
     for suffix in REVISION_STEPS:
         _open_revision_step(session, base + suffix, timeout)
+        if suffix == "/asins/edit":
+            confirm_applied_asin(session, asin, timeout)
     _wait_for_approve_button(session, timeout)
     if not session.evaluate(_click_approve_button_js()):
         raise NeedsManual("无法点击提交以供批准")

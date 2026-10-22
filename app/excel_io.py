@@ -1,24 +1,32 @@
-"""读取来源 Excel。表头有七列，不含状态。"""
+"""读取并回写 Excel。表头与本机 task 的业务列一致。"""
 
 from pathlib import Path
 
 from openpyxl import load_workbook
 
-# 与 SQLite 队列除 status 外的列同名。状态不在 Excel 中。
-# 站点表头是 market，与 plan.md 一致。country 用来打开网址，market 用来选择站点。
-EXCEL_COLUMNS = ("sku", "asin", "country", "market", "picture", "A+introduction", "src")
-BOOL_COLUMNS = ("picture", "A+introduction")
-
-_TRUE = {"1", "true", "yes", "y"}
-_FALSE = {"0", "false", "no", "n"}
+# 读入列。images 单元格可以是换行、分号、本机路径或 JSON。
+EXCEL_COLUMNS = (
+    "task_id",
+    "sku",
+    "asin",
+    "main_country",
+    "cross_country",
+    "actions",
+    "images",
+)
+# 执行后写回的状态。表上没有这些列表头时会补上。
+RESULT_COLUMNS = (
+    "status",
+    "attempt",
+    "error_code",
+    "error_msg",
+    "site_image_status",
+    "aplus_status",
+)
 
 
 def read_workbook(path):
-    """读取第一个工作表，返回七列记录。
-
-    picture 与 A+introduction 转为布尔值。src 保留图片地址原文。
-    picture 为真时 src 不能为空。不写入数据库，也不生成 status。
-    """
+    """读取第一个工作表。返回带 excel_row 的记录，不在这里做入队校验。"""
     path = Path(path or "")
     if not str(path) or path == Path("."):
         raise ValueError("未配置 source_excel")
@@ -34,46 +42,50 @@ def read_workbook(path):
         missing = [name for name in EXCEL_COLUMNS if _header_index(headers, name) is None]
         if missing:
             raise ValueError("缺少列：" + "、".join(missing))
-        indexes = {name: _header_index(headers, name) for name in EXCEL_COLUMNS}
+        indexes = {name: _header_index(headers, name) for name in EXCEL_COLUMNS + RESULT_COLUMNS}
         records = []
         for row_number, row in enumerate(rows, 2):
             values = list(row)
             if not any(value is not None and str(value).strip() for value in values):
                 continue
-            record = {}
-            for name in EXCEL_COLUMNS:
-                cell = values[indexes[name]] if indexes[name] < len(values) else None
-                if name in BOOL_COLUMNS:
-                    record[name] = _as_bool(cell, row_number, name)
-                else:
-                    text = str(cell or "").strip()
-                    if name != "src" and not text:
-                        raise ValueError(f"第 {row_number} 行 {name} 不能为空")
-                    record[name] = text
-            if record["picture"] and not record["src"]:
-                raise ValueError(f"第 {row_number} 行 src 不能为空")
+            record = {"excel_row": row_number, "excel_path": str(path)}
+            for name in EXCEL_COLUMNS + RESULT_COLUMNS:
+                index = indexes[name]
+                cell = values[index] if index is not None and index < len(values) else None
+                record[name] = "" if cell is None else str(cell).strip()
             records.append(record)
         return records
     finally:
         workbook.close()
 
 
-def _as_bool(value, row_number, column):
-    """接受 Excel 布尔值，以及 1/0、true/false。"""
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)) and not isinstance(value, bool) and value in (0, 1):
-        return bool(int(value))
-    text = str(value or "").strip().lower()
-    if text in _TRUE:
-        return True
-    if text in _FALSE:
-        return False
-    raise ValueError(f"第 {row_number} 行 {column} 不是布尔值")
+def write_task_row(path, excel_row, task):
+    """把这一行的状态写回 Excel。不改任务字段。"""
+    path = Path(path)
+    workbook = load_workbook(path)
+    try:
+        sheet = workbook.worksheets[0]
+        headers = [str(cell.value or "").strip() for cell in sheet[1]]
+        for name in RESULT_COLUMNS:
+            if name not in headers:
+                headers.append(name)
+                sheet.cell(1, len(headers), name)
+        values = {
+            "status": task.get("status") or "",
+            "attempt": task.get("attempt") if task.get("attempt") is not None else "",
+            "error_code": task.get("error_code") or "",
+            "error_msg": task.get("error_msg") or "",
+            "site_image_status": task.get("site_image_status") or "",
+            "aplus_status": task.get("aplus_status") or "",
+        }
+        for name, value in values.items():
+            sheet.cell(int(excel_row), headers.index(name) + 1, value)
+        workbook.save(path)
+    finally:
+        workbook.close()
 
 
 def _header_index(headers, name):
-    """按 plan.md 的表头原名定位。站点列只认 market。"""
     if name in headers:
         return headers.index(name)
     return None

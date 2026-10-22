@@ -26,19 +26,34 @@ OPTIONAL_COLUMNS = ("MAIN_COUNTRY", "CROSS_COUNTRY")
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
-def start_polling(config, database_path):
-    """在后台按 poll_interval_seconds 领取，并执行一条待处理任务。"""
+# 欧洲五国。每个线程只监听自己的 MAIN_COUNTRY。
+COUNTRY_THREADS = (
+    ("UK", "英国"),
+    ("DE", "德国"),
+    ("FR", "法国"),
+    ("IT", "意大利"),
+    ("ES", "西班牙"),
+)
+_flush_lock = threading.Lock()
+_warned_missing_country = False
+
+
+def start_polling(config, database_path, picture_log_path=None, aplus_log_path=None):
+    """英国、德国、法国、意大利、西班牙各一条线程。每国领自己的 New，做完再领下一条。"""
     from app.heartbeat import heartbeat
 
     heartbeat.start(config)
-    thread = threading.Thread(
-        target=_loop,
-        args=(config, database_path),
-        name="cl-task-poll",
-        daemon=True,
-    )
-    thread.start()
-    return thread
+    threads = []
+    for code, _name in COUNTRY_THREADS:
+        thread = threading.Thread(
+            target=_country_loop,
+            args=(code, config, database_path, picture_log_path, aplus_log_path),
+            name="cl-" + code,
+            daemon=True,
+        )
+        thread.start()
+        threads.append(thread)
+    return threads
 
 
 def claim_available(config, database_path):
@@ -62,45 +77,191 @@ def claim_available(config, database_path):
             if not guid:
                 logger.error("跳过没有 AMZ_CROSS_TASK_GUID 的 New 行")
                 continue
-            if _claim_one(connection, store, table, row, guid, "UPDATED_DATE" in columns):
-                claimed += 1
+            status = _claim_one(connection, store, table, row, guid, "UPDATED_DATE" in columns)
+            if not status:
+                continue
+            claimed += 1
+            if status == "成功":
+                _report_claim(config, row, guid, "领取后本机已完成，直接回写 Confirm")
+                try:
+                    write_back(config, guid, "Confirm", "", "")
+                except Exception:
+                    logger.exception("已完成任务回写 Confirm 失败 AMZ_CROSS_TASK_GUID=%s", guid)
+            else:
+                _report_claim(config, row, guid, "领取，本机状态 " + status)
         return claimed
     finally:
         close_store(store)
         connection.close()
 
 
-def _loop(config, database_path):
+def _country_loop(code, config, database_path, picture_log_path=None, aplus_log_path=None):
+    """先做完该国待重试和待处理，再领一条该国的 New。没有活就睡一个轮询间隔。"""
     interval = _interval(config)
     while True:
+        worked = False
         try:
             from app.task_record import flush_pending_writebacks
 
-            flush_pending_writebacks(config, database_path)
+            with _flush_lock:
+                flush_pending_writebacks(config, database_path)
         except Exception:
-            logger.exception("补回写 CL 失败")
-        try:
-            claimed = claim_available(config, database_path)
-            if claimed:
-                logger.info("本轮领到 %s 条", claimed)
-        except Exception:
-            logger.exception("轮询 CL 任务失败")
+            logger.exception("补回写 CL 失败 %s", code)
         try:
             from app.pipeline import PICTURE_ROOT
             from app.task_run import run_one_pending
 
-            run_one_pending(config, database_path, PICTURE_ROOT)
+            if run_one_pending(
+                config,
+                database_path,
+                PICTURE_ROOT,
+                log_path=picture_log_path,
+                aplus_log_path=aplus_log_path,
+                main_country=code,
+            ):
+                worked = True
         except Exception:
-            logger.exception("执行本机任务失败")
-        time.sleep(interval)
+            logger.exception("执行本机任务失败 %s", code)
+        if not worked:
+            try:
+                if claim_one(config, database_path, code):
+                    worked = True
+            except Exception:
+                logger.exception("轮询 CL 任务失败 %s", code)
+        if not worked:
+            time.sleep(interval)
+
+
+def claim_one(config, database_path, main_country):
+    """领取该国最早的一条 New。更新行数是 1 才写入本机。没有新行时返回 0。"""
+    code = str(main_country or "").strip().upper()
+    name = dict(COUNTRY_THREADS).get(code, "")
+    database = _require_db(config)
+    table = _identifier(database.get("table"), "cl_db.table")
+    connection = _connect(database)
+    store = None
+    try:
+        columns = _table_columns(connection, table)
+        missing = [item for item in READ_COLUMNS if item not in columns]
+        if missing:
+            raise RuntimeError("CL 表缺少列：" + "、".join(missing))
+        if "MAIN_COUNTRY" not in columns:
+            _warn_missing_country()
+            return 0
+        selected = [item for item in READ_COLUMNS if item in columns]
+        selected.extend(item for item in OPTIONAL_COLUMNS if item in columns)
+        row = _fetch_one_new(connection, table, selected, code, name)
+        if row is None:
+            return 0
+        guid = str(row.get("AMZ_CROSS_TASK_GUID") or "").strip()
+        if not guid:
+            logger.error("跳过没有 AMZ_CROSS_TASK_GUID 的 New 行 %s", code)
+            return 0
+        store = open_store(database_path)
+        status = _claim_one(connection, store, table, row, guid, "UPDATED_DATE" in columns)
+        if not status:
+            return 0
+        logger.info("本轮领到 1 条 %s", code)
+        if status == "成功":
+            _report_claim(config, row, guid, "领取后本机已完成，直接回写 Confirm")
+            try:
+                write_back(config, guid, "Confirm", "", "")
+            except Exception:
+                logger.exception("已完成任务回写 Confirm 失败 AMZ_CROSS_TASK_GUID=%s", guid)
+        else:
+            _report_claim(config, row, guid, "领取，本机状态 " + status)
+        return 1
+    finally:
+        close_store(store)
+        connection.close()
+
+
+def _warn_missing_country():
+    global _warned_missing_country
+    if _warned_missing_country:
+        return
+    _warned_missing_country = True
+    logger.error("CL 表没有 MAIN_COUNTRY，五国线程不领取")
+
+
+def _fetch_one_new(connection, table, columns, code, name):
+    sql = (
+        "SELECT " + ", ".join(columns)
+        + " FROM " + table
+        + " WHERE TASK_STATUS = %s AND (UPPER(MAIN_COUNTRY) = %s OR MAIN_COUNTRY = %s)"
+        + " ORDER BY CREATION_DATE LIMIT 1"
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(sql, ("New", code, name))
+        return cursor.fetchone()
+
+
+def reclaim_stale(config, exclude_guids=None):
+    """把更新时间已早于设定秒数、仍为 Process 的行改回 New。正在执行的 GUID 不收回。"""
+    database = _require_db(config)
+    table = _identifier(database.get("table"), "cl_db.table")
+    seconds = _stale_seconds(config)
+    connection = _connect(database)
+    try:
+        if "UPDATED_DATE" not in _table_columns(connection, table):
+            return []
+        select_sql = (
+            "SELECT AMZ_CROSS_TASK_GUID FROM " + table
+            + " WHERE TASK_STATUS = %s"
+            + " AND (UPDATED_DATE IS NULL OR UPDATED_DATE < DATE_SUB(NOW(), INTERVAL "
+            + str(seconds)
+            + " SECOND))"
+        )
+        with connection.cursor() as cursor:
+            cursor.execute(select_sql, ("Process",))
+            guids = [
+                str(row.get("AMZ_CROSS_TASK_GUID") or "").strip()
+                for row in cursor.fetchall()
+            ]
+        skip = {str(item or "").strip() for item in (exclude_guids or [])}
+        guids = [guid for guid in guids if guid and guid not in skip]
+        reclaimed = []
+        update_sql = (
+            "UPDATE " + table
+            + " SET TASK_STATUS = %s, UPDATED_DATE = NOW()"
+            + " WHERE AMZ_CROSS_TASK_GUID = %s AND TASK_STATUS = %s"
+        )
+        with connection.cursor() as cursor:
+            for guid in guids:
+                cursor.execute(update_sql, ("New", guid, "Process"))
+                if cursor.rowcount == 1:
+                    reclaimed.append(guid)
+        if reclaimed:
+            connection.commit()
+        else:
+            connection.rollback()
+        return reclaimed
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def _stale_seconds(config):
+    """Process 超过这么久没刷新，就收回成 New。"""
+    database = config.get("cl_db") if isinstance(config, dict) else None
+    raw = database.get("stale_processing_seconds") if isinstance(database, dict) else None
+    try:
+        seconds = int(float(raw))
+    except (TypeError, ValueError):
+        seconds = 1800
+    if seconds <= 0:
+        return 1800
+    return seconds
 
 
 def _claim_one(connection, store, table, row, guid, touch_updated):
     try:
         if not _mark_process(connection, table, guid, touch_updated):
             connection.rollback()
-            return False
-        save_claimed_task(store, row)
+            return ""
+        status = save_claimed_task(store, row)
         connection.commit()
     except Exception:
         connection.rollback()
@@ -109,7 +270,7 @@ def _claim_one(connection, store, table, row, guid, touch_updated):
             row.get("TASK_ID"),
             guid,
         )
-        return False
+        return ""
     from app.logging_setup import log_business
 
     log_business(
@@ -125,7 +286,18 @@ def _claim_one(connection, store, table, row, guid, touch_updated):
         "claim",
         "已领取",
     )
-    return True
+    return status
+
+
+def _report_claim(config, row, guid, text):
+    from app.progress_feed import describe, report
+
+    report(describe(config, {
+        "task_id": row.get("TASK_ID"),
+        "sku": row.get("SKU"),
+        "amz_cross_task_guid": guid,
+        "origin": "cl",
+    }, text))
 
 
 def _fetch_new(connection, table, columns):
@@ -209,6 +381,34 @@ def _identifier(value, label):
     if not _IDENTIFIER.fullmatch(text):
         raise ValueError(label + " 不是合法的表名")
     return text
+
+
+def touch_updated(config, guid):
+    """刷新仍为 Process 的这一行。没有 UPDATED_DATE 时返回 None，刷新到返回 1，行已不是 Process 返回 0。"""
+    database = _require_db(config)
+    table = _identifier(database.get("table"), "cl_db.table")
+    connection = _connect(database, found_rows=True)
+    try:
+        if "UPDATED_DATE" not in _table_columns(connection, table):
+            return None
+        sql = (
+            "UPDATE " + table
+            + " SET UPDATED_DATE = NOW()"
+            + " WHERE AMZ_CROSS_TASK_GUID = %s AND TASK_STATUS = %s"
+        )
+        with connection.cursor() as cursor:
+            cursor.execute(sql, (str(guid or "").strip(), "Process"))
+            count = cursor.rowcount
+        if count == 1:
+            connection.commit()
+        else:
+            connection.rollback()
+        return 1 if count == 1 else 0
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 def write_back(config, guid, status, error_code, error_message):

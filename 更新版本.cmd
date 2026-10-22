@@ -1,38 +1,39 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-chcp 65001 >nul
 
-echo å…³é—­æ­£åœ¨è¿è¡Œçš„æ—§ç‰ˆæœ¬...
+echo ¹Ø±ÕÕıÔÚÔËĞĞµÄ¾É°æ±¾...
 taskkill /F /IM AosomImageAplus.exe >nul 2>&1
 
-echo å®‰è£…ä¾èµ–...
-python -m pip install -r requirements.txt pyinstaller
+echo °²×°ÒÀÀµ...
+python -m pip install -r requirements.txt
 if errorlevel 1 (
-  echo ä¾èµ–å®‰è£…å¤±è´¥ï¼Œæ—§ç‰ˆæœ¬æœªåˆ é™¤ã€‚
+  echo ÒÀÀµ°²×°Ê§°Ü£¬¾É°æ±¾Î´É¾³ı¡£
   pause
   exit /b 1
 )
 
-echo åˆ é™¤æ—§ç‰ˆæœ¬...
-if exist "dist\AosomImageAplus" (
+echo É¾³ı¾É°æ±¾...
+if exist "dist\AosomImageAplus.exe" del /f /q "dist\AosomImageAplus.exe"
+if exist "dist\AosomImageAplus\" (
   attrib -r "dist\AosomImageAplus\*" /s /d >nul 2>&1
   rmdir /s /q "dist\AosomImageAplus"
 )
-if exist "dist\AosomImageAplus" (
-  echo æ—§ç‰ˆæœ¬åˆ ä¸æ‰ã€‚è¯·å…ˆå…³é—­æ­£åœ¨ä½¿ç”¨ dist\AosomImageAplus çš„ç¨‹åºå’Œç¼–è¾‘å™¨æ ‡ç­¾ï¼Œå†é‡æ–°è¿è¡Œæœ¬è„šæœ¬ã€‚
+if exist "dist\AosomImageAplus\" (
+  echo ¾É°æ±¾É¾²»µô¡£ÇëÏÈ¹Ø±ÕÕıÔÚÊ¹ÓÃ dist\AosomImageAplus µÄ³ÌĞòºÍ±à¼­Æ÷±êÇ©£¬ÔÙÖØĞÂÔËĞĞ±¾½Å±¾¡£
   pause
   exit /b 1
 )
 
-echo æ‰“åŒ…æ–°ç‰ˆæœ¬...
-python -m PyInstaller --noconfirm --console --name AosomImageAplus --collect-all tkinterdnd2 --add-data "config/settings.json;config" main.py
+echo ´ò°üĞÂ°æ±¾...
+python -m PyInstaller --noconfirm AosomImageAplus.spec
 if errorlevel 1 (
-  echo æ‰“åŒ…å¤±è´¥ã€‚
+  echo ´ò°üÊ§°Ü¡£
   pause
   exit /b 1
 )
 
-echo æ–°ç‰ˆæœ¬å·²ç”Ÿæˆï¼šdist\AosomImageAplus\AosomImageAplus.exe
+echo ĞÂ°æ±¾ÒÑÉú³É£ºdist\AosomImageAplus.exe
+echo °ÑÕâ¸ö exe ¿½µ½±ğµÄÎÄ¼ş¼Ğ¼´¿É¡£Í¬Ä¿Â¼·ÅÉÏ config\settings.local.json£¬»òÖ±½Ó·Å settings.local.json¡£
 pause
 exit /b 0

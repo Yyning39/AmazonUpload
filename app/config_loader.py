@@ -19,12 +19,26 @@ def _deep_merge(base, overlay):
     return merged
 
 
+def bundle_dir():
+    """只读资源目录。开发时是项目根；打包后是随 exe 解压出来的资源。"""
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", app_dir()))
+    return Path(__file__).resolve().parent.parent
+
+
+def app_dir():
+    """可写目录。开发时是项目根；打包后是 exe 所在目录，换位置也能写日志和队列。"""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
 def _local_config_candidates(settings_path):
-    """settings.local.json 候选路径：开发目录优先，打包后还可放在 exe 旁。"""
+    """settings.local.json：先看配置旁边，打包后再看 exe 旁边。"""
     settings_path = Path(settings_path)
     candidates = [settings_path.with_name("settings.local.json")]
     if getattr(sys, "frozen", False):
-        exe_dir = Path(sys.executable).resolve().parent
+        exe_dir = app_dir()
         candidates.append(exe_dir / "config" / "settings.local.json")
         candidates.append(exe_dir / "settings.local.json")
     return candidates

@@ -82,7 +82,7 @@ CL 在触发点 INSERT 一行（TASK_STATUS = New，ACTIONS / IMAGES 等已填�
 |---|---|
 | `MAIN_COUNTRY` | 主站国别代码：`US` `CA` `UK` `DE` `FR` `IT` `ES` |
 | `CROSS_COUNTRY` | 跨站国别代码（同上）。**本机只认此二字段定位跨站与 Chrome**，不认 `ORG_UNITS_GUID` |
-| `UPDATED_DATE` | 最后更新时间。领取、心跳、回写时刷新；用于僵尸 `Process` 回收 |
+| `UPDATED_DATE` | 最后更新时间。领取、执行中心跳、开始重试、回写时刷新；用于僵尸 `Process` 回收 |
 
 #### `TASK_STATUS`
 
@@ -118,7 +118,7 @@ WHERE TASK_STATUS = 'Process'
   AND UPDATED_DATE < NOW() - INTERVAL 30 MINUTE
 ```
 
-长任务（多图上传等）执行中应定期刷新 `UPDATED_DATE`（心跳），避免误回收导致双实例同跑。配置项：`stale_processing_seconds`（默认 1800）。
+长任务（多图上传等）执行中应定期刷新 `UPDATED_DATE`（心跳），避免误回收导致双实例同跑。开始下一次重试时也刷新一次。配置项：`stale_processing_seconds`（默认 1800）。轮询只领取 `New`。
 
 本机不写 `ACTIONS`。不设 CL 侧 `trigger`、`site_image_status`、`attempt`、`worker_id` 列；重试次数与分步状态只在本机 SQLite。上架页若需展示站点图结果，由 CL 根据本行 `Confirm` / `Error` 及 `ERROR_*` 自行同步，本程序不再单独回写站点图状态字段。
 
@@ -204,7 +204,7 @@ WHERE TASK_STATUS = 'Process'
 | `失败` | 对应 CL `Error` |
 | `待人工` | 该国登录不可用，暂停（见第 9.3 节） |
 
-同一时间只跑一个任务。进程退出时，本机 `处理中` 下次启动改为 `待重试`。CL 侧若仍为 `Process` 且未过期，由本机继续；若已被回收为 `New`，再 CAS 领取后按 `TASK_ID` 合并 attempt 与分步状态。
+英国、德国、法国、意大利、西班牙各一条线程，每国同时只跑一条。进程退出时，本机 `处理中` 下次启动改为 `待重试`。CL 侧若仍为 `Process` 且未过期，由本机继续；若已被回收为 `New`，再 CAS 领取后按 `TASK_ID` 合并 attempt 与分步状态。
 
 ## 6. 传站点图
 
@@ -271,7 +271,7 @@ A+ 选择器实现前先从已登录页核对再写死常量。
 
 配置 `max_attempts`，默认 **3**。按整单计次；同一次执行里站点图失败记 1 次，不再接着做 A+。
 
-可重试期间：本机 `待重试`，CL 保持 `Process`。达到上限或不可重试 → 本机 `失败`，CL `Error`。
+可重试期间：本机 `待重试`，CL 保持 `Process`。达到上限或不可重试 → 本机 `失败`，CL `Error`。没有草稿仍是跳过，不记成出错。
 
 ### 9.2 errorCode
 

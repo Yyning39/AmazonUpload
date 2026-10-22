@@ -103,10 +103,10 @@ def update_status(store, item_id, status):
 
 
 def save_claimed_task(store, row):
-    """把刚领到的 CL 行写入 task。
+    """把刚领到的 CL 行写入 task。返回写入后的本机状态。
 
     同一 TASK_ID 已存在时合并快照，保留 attempt 和分步状态。
-    正在执行的行不改回待处理。
+    正在执行的行不改状态。站点图和 A+ 都已经成功或跳过时保持成功，不再排队。
     """
     guid = str(row.get("AMZ_CROSS_TASK_GUID") or "").strip()
     if not guid:
@@ -134,23 +134,43 @@ def save_claimed_task(store, row):
             """,
             (task_id or None, *snapshot, "待处理", now, now),
         )
-    else:
-        status = existing["status"] if existing["status"] == "处理中" else "待处理"
-        error_code = str(existing["error_code"] or "")
-        error_msg = str(existing["error_msg"] or "")
-        if error_code == "CL_LOST":
-            error_code = ""
-            error_msg = ""
-        store.execute(
-            """
-            UPDATE task
-            SET amz_cross_task_guid = ?, sku = ?, asin = ?, main_country = ?, cross_country = ?,
-                actions = ?, images = ?, status = ?, error_code = ?, error_msg = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (*snapshot, status, error_code, error_msg, now, existing["id"]),
-        )
+        store.commit()
+        return "待处理"
+    status = _status_after_claim(existing)
+    error_code = str(existing["error_code"] or "")
+    error_msg = str(existing["error_msg"] or "")
+    if error_code == "CL_LOST":
+        error_code = ""
+        error_msg = ""
+    if status == "成功":
+        error_code = ""
+        error_msg = ""
+    store.execute(
+        """
+        UPDATE task
+        SET amz_cross_task_guid = ?, sku = ?, asin = ?, main_country = ?, cross_country = ?,
+            actions = ?, images = ?, status = ?, error_code = ?, error_msg = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (*snapshot, status, error_code, error_msg, now, existing["id"]),
+    )
     store.commit()
+    return status
+
+
+def _status_after_claim(existing):
+    """再领到同一条时，已完成的不重新排队。"""
+    if existing["status"] == "处理中":
+        return "处理中"
+    if _steps_finished(existing):
+        return "成功"
+    return "待处理"
+
+
+def _steps_finished(existing):
+    images_done = str(existing["site_image_status"] or "") == "成功"
+    aplus_done = str(existing["aplus_status"] or "") in {"成功", "跳过"}
+    return images_done and aplus_done
 
 
 def _ensure_task_table(store):
@@ -229,22 +249,57 @@ def release_processing_tasks(store):
     return cursor.rowcount
 
 
-def take_pending_task(store):
-    """没有处理中的任务时，把最早一条待处理或待重试改为处理中并返回。"""
+_COUNTRY_ALIASES = {
+    "UK": ("UK", "英国"),
+    "DE": ("DE", "德国"),
+    "FR": ("FR", "法国"),
+    "IT": ("IT", "意大利"),
+    "ES": ("ES", "西班牙"),
+}
+
+
+def take_pending_task(store, main_country=None):
+    """没有该国处理中的任务时，优先取待重试，再取待处理，改为处理中并返回。
+
+    传入 main_country 时只看这一国。不传时仍看全部，并且全库只能有一条处理中。
+    """
     store.execute("BEGIN IMMEDIATE")
-    busy = store.execute("SELECT id FROM task WHERE status = '处理中' LIMIT 1").fetchone()
+    code = str(main_country or "").strip().upper()
+    aliases = tuple(item.upper() for item in _COUNTRY_ALIASES.get(code, (code,))) if code else ()
+    if code:
+        marks = ", ".join("?" for _ in aliases)
+        busy = store.execute(
+            f"SELECT id FROM task WHERE status = '处理中' AND upper(trim(main_country)) IN ({marks}) LIMIT 1",
+            aliases,
+        ).fetchone()
+    else:
+        busy = store.execute("SELECT id FROM task WHERE status = '处理中' LIMIT 1").fetchone()
     if busy is not None:
         store.rollback()
         return None
-    row = store.execute(
-        """
-        SELECT * FROM task
-        WHERE status IN ('待处理', '待重试') AND COALESCE(origin, 'cl') = 'cl'
-          AND COALESCE(error_code, '') <> 'CL_LOST'
-        ORDER BY id
-        LIMIT 1
-        """
-    ).fetchone()
+    if code:
+        marks = ", ".join("?" for _ in aliases)
+        row = store.execute(
+            f"""
+            SELECT * FROM task
+            WHERE status IN ('待处理', '待重试') AND COALESCE(origin, 'cl') = 'cl'
+              AND COALESCE(error_code, '') <> 'CL_LOST'
+              AND upper(trim(main_country)) IN ({marks})
+            ORDER BY CASE status WHEN '待重试' THEN 0 ELSE 1 END, id
+            LIMIT 1
+            """,
+            aliases,
+        ).fetchone()
+    else:
+        row = store.execute(
+            """
+            SELECT * FROM task
+            WHERE status IN ('待处理', '待重试') AND COALESCE(origin, 'cl') = 'cl'
+              AND COALESCE(error_code, '') <> 'CL_LOST'
+            ORDER BY id
+            LIMIT 1
+            """
+        ).fetchone()
     if row is None:
         store.rollback()
         return None
@@ -370,12 +425,16 @@ def mark_task_retry(store, task_pk, error_msg):
 
 
 def _find_task(store, task_id, guid):
+    columns = "id, status, error_code, error_msg, site_image_status, aplus_status"
     if task_id:
-        found = store.execute("SELECT id, status FROM task WHERE task_id = ?", (task_id,)).fetchone()
+        found = store.execute(
+            "SELECT " + columns + " FROM task WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
         if found is not None:
             return found
     return store.execute(
-        "SELECT id, status FROM task WHERE amz_cross_task_guid = ?",
+        "SELECT " + columns + " FROM task WHERE amz_cross_task_guid = ?",
         (guid,),
     ).fetchone()
 

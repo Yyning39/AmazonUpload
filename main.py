@@ -1,37 +1,61 @@
-"""程序入口。打开账号与上传记录窗口，并启动欧洲五国 Chrome。"""
+"""程序入口。打开账号与上传记录窗口。五国 Chrome 等窗口里点击后再拉起。"""
 
 import sys
 from pathlib import Path
 
-from app.config_loader import load_config
-from app.hub_ui import HubWindow
+import logging
+
+from app.cl_task import start_polling
+from app.config_loader import app_dir, bundle_dir, load_config
+from app.flet_hub import HubWindow
 from app.logging_setup import setup_logging
-
-
-def project_root():
-    """开发时用源码目录。打包后用随 exe 带上的资源目录。"""
-    if getattr(sys, "frozen", False):
-        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
-    return Path(__file__).resolve().parent
-
-
-ROOT = project_root()
+from app.progress_feed import source_note
+from app.queue_store import close_store, open_store, release_processing_tasks
 
 
 def database_path(config):
-    """队列文件路径。相对路径按项目目录解析。"""
+    """队列文件路径。相对路径写到 exe 旁边，不写进临时解压目录。"""
     raw = str(config.get("database_file") or "data/queue.sqlite3").strip()
     path = Path(raw)
     if not path.is_absolute():
-        path = ROOT / path
+        path = app_dir() / path
     return path
 
 
+def _hide_frozen_console():
+    """打包后的窗口程序不留命令行。开发时从终端启动则保留。"""
+    if not getattr(sys, "frozen", False) or sys.platform != "win32":
+        return
+    import ctypes
+
+    window = ctypes.windll.kernel32.GetConsoleWindow()
+    if window:
+        ctypes.windll.user32.ShowWindow(window, 0)
+
+
 def main():
-    """打开账号管理窗口。窗口里会启动英国、德国、法国、意大利、西班牙。"""
-    config = load_config(ROOT / "config" / "settings.json")
-    setup_logging(config.get("log_dir"), config.get("log_level"))
-    window = HubWindow(database_path(config), ROOT / "picture_log.md", ROOT / "aplus_log.md")
+    """打开账号管理窗口。不自动拉起 Chrome。"""
+    _hide_frozen_console()
+    config = load_config(bundle_dir() / "config" / "settings.json")
+    log_dir = Path(str(config.get("log_dir") or "logs"))
+    if not log_dir.is_absolute():
+        log_dir = app_dir() / log_dir
+    setup_logging(log_dir, config.get("log_level"))
+    path = database_path(config)
+    store = open_store(path)
+    try:
+        released = release_processing_tasks(store)
+    finally:
+        close_store(store)
+    if released:
+        logging.getLogger(__name__).info("启动时把 %s 条处理中改为待重试", released)
+    window = HubWindow(
+        database_path(config),
+        app_dir() / "picture_log.md",
+        app_dir() / "aplus_log.md",
+        source_note(config),
+    )
+    start_polling(config, path, window.picture_log_path, window.aplus_log_path)
     window.run()
 
 

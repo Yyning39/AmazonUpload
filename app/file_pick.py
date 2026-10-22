@@ -6,7 +6,6 @@ import zipfile
 from openpyxl.utils.exceptions import InvalidFileException
 
 from app.excel_io import read_workbook
-from app.queue_store import close_store, enqueue, open_store
 
 
 def choose_dropped_file(paths):
@@ -43,16 +42,6 @@ def explain_read_failure(exc, path):
 
 
 def import_workbook(path, database_path):
-    """读取一个工作簿并写入队列。返回导入行数。
-
-    不打开浏览器，不回写 Excel。没有数据行时不写数据库。
-    """
-    rows = read_workbook(path)
-    if not rows:
-        return 0
-    store = open_store(database_path)
-    try:
-        enqueue(store, rows)
-    finally:
-        close_store(store)
-    return len(rows)
+    """只检查这张表能否按新表头读入。真正执行和回写由选择 Excel 完成。"""
+    del database_path
+    return len(read_workbook(path))
