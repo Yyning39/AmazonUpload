@@ -51,21 +51,31 @@ SITE_SWITCHER_ICON_SELECTOR = ".dropdown-account-switcher-header-trailing-icon"
 SITE_SWITCHER_HEADER_SELECTOR = ".dropdown-account-switcher-header"
 SITE_SWITCHER_LIST_SELECTOR = ".dropdown-account-switcher-list"
 SITE_OPTION_SELECTOR = ".dropdown-account-switcher-list-item-indented"
-# 点选靠旗帜 data-test。英国旗帜是 country-flag-GB。
-# 切完不看顶栏站名。网址参数 mons_sel_mkid 里的编号不随语言变化。
-# 西班牙页上看到的是 amzn1.mp.o.A1RKKUPIHCS9HS。
-# 美国、加拿大不在当前展开的 OutSunny Iberica 列表里，没有看到旗帜代码，不写入。
+# 跨站以当前账号下拉里展开的国家为准。下面是这批旗帜、站名和切换后的编号。
+# 英国旗帜是 country-flag-GB。图片管理里英国模块是 global，不是 UK。
+# 主体 Chrome 仍只开欧洲五国，不给比利时、荷兰这些另开窗口。
+CROSS_SITES = {
+    "UK": {"flag": "GB", "names": ("united kingdom", "uk", "gb", "英国"), "marketplace_id": "A1F83G8C2ARO7P", "domain": "sellercentral.amazon.co.uk", "section": "global"},
+    "DE": {"flag": "DE", "names": ("germany", "de", "德国"), "marketplace_id": "A1PA6795UKMFR9", "domain": "sellercentral.amazon.de", "section": "DE"},
+    "FR": {"flag": "FR", "names": ("france", "fr", "法国"), "marketplace_id": "A13V1IB3VIYZZH", "domain": "sellercentral.amazon.fr", "section": "FR"},
+    "IT": {"flag": "IT", "names": ("italy", "it", "意大利"), "marketplace_id": "APJ6JRA9NG5V4", "domain": "sellercentral.amazon.it", "section": "IT"},
+    "ES": {"flag": "ES", "names": ("spain", "es", "西班牙"), "marketplace_id": "A1RKKUPIHCS9HS", "domain": "sellercentral.amazon.es", "section": "ES"},
+    "BE": {"flag": "BE", "names": ("belgium", "be", "比利时"), "marketplace_id": "AMEN7PMS3EDWL", "domain": "sellercentral.amazon.com.be", "section": "BE"},
+    "IE": {"flag": "IE", "names": ("ireland", "ie", "爱尔兰"), "marketplace_id": "A28R8C7NBKEWEA", "domain": "sellercentral.amazon.ie", "section": "IE"},
+    "NL": {"flag": "NL", "names": ("netherlands", "nl", "荷兰"), "marketplace_id": "A1805IZSGTT6HS", "domain": "sellercentral.amazon.nl", "section": "NL"},
+    "PL": {"flag": "PL", "names": ("poland", "pl", "波兰"), "marketplace_id": "A1C3SOZRARQ6R3", "domain": "sellercentral.amazon.pl", "section": "PL"},
+    "SE": {"flag": "SE", "names": ("sweden", "se", "瑞典"), "marketplace_id": "A2NODRKZP88ZB9", "domain": "sellercentral.amazon.se", "section": "SE"},
+    "TR": {"flag": "TR", "names": ("turkey", "tr", "土耳其"), "marketplace_id": "A33AVAJ2PDY3EV", "domain": "sellercentral.amazon.com.tr", "section": "TR"},
+}
 SITE_OPTIONS = {
-    "UK": {"flag": "GB", "marketplace_id": "A1F83G8C2ARO7P"},
-    "DE": {"flag": "DE", "marketplace_id": "A1PA6795UKMFR9"},
-    "FR": {"flag": "FR", "marketplace_id": "A13V1IB3VIYZZH"},
-    "IT": {"flag": "IT", "marketplace_id": "APJ6JRA9NG5V4"},
-    "ES": {"flag": "ES", "marketplace_id": "A1RKKUPIHCS9HS"},
+    code: {"flag": item["flag"], "marketplace_id": item["marketplace_id"]}
+    for code, item in CROSS_SITES.items()
+    if code in {"UK", "DE", "FR", "IT", "ES"}
 }
 
 
 def country_code(country):
-    """把 US 或「美国」转成国家代码。"""
+    """把 US 或「美国」转成有独立 Chrome 的国家代码。"""
     text = str(country or "").strip()
     code = text.upper()
     if code not in COUNTRY_PORTS:
@@ -73,6 +83,22 @@ def country_code(country):
     if code not in COUNTRY_PORTS:
         raise ValueError("未知国家站点：" + text)
     return code
+
+
+def cross_site_code(country):
+    """把跨站写成 UK、NL 这种代码。认下拉里的旗帜、英文站名和中文名。"""
+    text = str(country or "").strip()
+    folded = text.upper()
+    lowered = text.lower()
+    for code, option in CROSS_SITES.items():
+        if folded == code or folded == option["flag"] or lowered in option["names"] or text in option["names"]:
+            return code
+    raise ValueError("未知跨站：" + text)
+
+
+def image_section_code(country):
+    """图片管理里的国家模块。英国是 global，其余用国家代码。"""
+    return CROSS_SITES[cross_site_code(country)]["section"]
 
 
 def port_for(country):
@@ -337,23 +363,27 @@ def close_browser(browser):
 def switch_site(session, country, timeout=30):
     """在当前页展开账户下拉，并点选目标站点。
 
+    能点的国家以这一次下拉里展开的旗帜为准。下拉里没有就不点。
     不搜索，不上传，不回写。调用方传入已经连上的页面。
-    点击方式参考原项目 ChromePage.click_text 的元素 click。
-    等待间隔与本文件导航轮询相同，来源是原项目 open_upload_page，不用固定长等待当成功条件。
     """
     from app.imaging_upload import NeedsManual
 
-    code = country_code(country)
-    option = SITE_OPTIONS.get(code)
-    if option is None:
-        raise NeedsManual(f"当前展开的账户列表里没有 {code} 的站点选项")
+    code = cross_site_code(country)
+    option = CROSS_SITES[code]
     _wait_switcher_icon(session, timeout)
     if not session.evaluate(_click_switcher_js()):
         raise NeedsManual("无法点击站点展开图标")
-    _wait_site_option(session, option["flag"], timeout)
+    sites = _wait_country_list(session, timeout)
+    match = next((item for item in sites if item.get("flag") == option["flag"]), None)
+    if match is None:
+        raise NeedsManual(f"当前展开的账户列表里没有 {code} 的站点选项")
+    label = str(match.get("label") or "").strip()
+    if match.get("selected") and _header_has_label(session, label):
+        session.evaluate(_close_switcher_js())
+        return
     if not session.evaluate(_click_site_option_js(option["flag"])):
         raise NeedsManual(f"无法点击站点选项 {code}")
-    _wait_site_marketplace(session, option["marketplace_id"], SELLER_CENTRAL_DOMAINS[code], timeout)
+    _wait_site_switched(session, label, option, timeout)
 
 
 def _wait_switcher_icon(session, timeout):
@@ -377,44 +407,52 @@ def _wait_switcher_icon(session, timeout):
         time.sleep(0.25)
 
 
-def _wait_site_option(session, flag, timeout):
+def _wait_country_list(session, timeout):
+    """等到下拉里出现国家。账号还没收起国家时，点当前账号把它展开。"""
     from app.imaging_upload import NeedsManual
 
     started = time.monotonic()
     deadline = started + float(timeout)
-    selector = f'{SITE_OPTION_SELECTOR} [data-test="country-flag-{flag}"]'
+    expanded = False
     while True:
-        count = int(session.evaluate(_site_option_count_js(flag)) or 0)
-        if count > 1:
-            raise NeedsManual(f"站点选项不止一个：{selector}")
-        if count == 1:
-            return
+        sites = session.evaluate(_country_options_js()) or []
+        if isinstance(sites, list) and sites:
+            return sites
+        if not expanded:
+            session.evaluate(_expand_current_account_js())
+            expanded = True
         if time.monotonic() >= deadline:
             elapsed = time.monotonic() - started
-            ready = session.evaluate("document.readyState") or "未知"
-            raise NeedsManual(
-                f"等待站点选项超时：{selector}，等了 {elapsed:.1f} 秒，readyState={ready}"
-            )
+            raise NeedsManual(f"当前展开的账户列表里没有跨站国家，等了 {elapsed:.1f} 秒")
         time.sleep(0.25)
 
 
-def _wait_site_marketplace(session, marketplace_id, hostname, timeout):
-    """有 mons_sel_mkid 时对编号。地址里没有这个参数时，对国家域名。不读顶栏站名。"""
+def _header_has_label(session, label):
+    wanted = str(label or "").strip().lower()
+    if not wanted:
+        return False
+    header = str(session.evaluate(_header_text_js()) or "").lower()
+    return wanted in header
+
+
+def _wait_site_switched(session, label, option, timeout):
+    """顶栏出现刚点的站名，或网址里的站点编号、域名对上。欧洲账号常停在原域名上，所以要看顶栏。"""
     from app.imaging_upload import NeedsManual
 
     started = time.monotonic()
     deadline = started + float(timeout)
+    wanted = str(label or "").strip().lower()
     while True:
-        state = session.evaluate(_site_marketplace_js(marketplace_id, hostname)) or {}
-        if state.get("matched"):
+        state = session.evaluate(_site_header_js(option["marketplace_id"], option["domain"])) or {}
+        header = str(state.get("header") or "").lower()
+        if state.get("ready") and ((wanted and wanted in header) or state.get("byId") or state.get("byHost")):
             return
         if time.monotonic() >= deadline:
             elapsed = time.monotonic() - started
             ready = state.get("readyState") or "未知"
-            current_id = state.get("mkid") or "空"
-            current_host = state.get("host") or "空"
+            current = state.get("header") or "空"
             raise NeedsManual(
-                f"等待站点切换完成超时：编号 {marketplace_id} 或域名 {hostname}，等了 {elapsed:.1f} 秒，readyState={ready}，当前编号={current_id}，当前域名={current_host}"
+                f"等待站点切换完成超时：{label or option['flag']}，等了 {elapsed:.1f} 秒，readyState={ready}，顶栏={current}"
             )
         time.sleep(0.25)
 
@@ -442,14 +480,81 @@ def _click_switcher_js():
     }})()"""
 
 
-def _site_option_count_js(flag):
+def _country_options_js():
     list_selector = json.dumps(SITE_SWITCHER_LIST_SELECTOR)
     option_selector = json.dumps(SITE_OPTION_SELECTOR)
-    flag_selector = json.dumps(f'[data-test="country-flag-{flag}"]')
     return f"""(() => {{
       const list = document.querySelector({list_selector});
-      if (!list) return 0;
-      return [...list.querySelectorAll({option_selector})].filter(item => item.querySelector({flag_selector})).length;
+      if (!list) return [];
+      return [...list.querySelectorAll({option_selector})].map(item => {{
+        const flag = item.querySelector('[data-test^="country-flag-"]');
+        const raw = flag ? (flag.getAttribute('data-test') || '') : '';
+        const label = item.querySelector('.dropdown-account-switcher-list-item-label');
+        return {{
+          flag: raw.replace('country-flag-', ''),
+          label: ((label && label.innerText) || item.getAttribute('title') || '').trim(),
+          selected: !!item.querySelector('.dropdown-account-switcher-list-item-selected-icon')
+        }};
+      }}).filter(item => item.flag);
+    }})()"""
+
+
+def _expand_current_account_js():
+    header_selector = json.dumps(SITE_SWITCHER_HEADER_SELECTOR)
+    list_selector = json.dumps(SITE_SWITCHER_LIST_SELECTOR)
+    return f"""(() => {{
+      const header = document.querySelector({header_selector});
+      const headerText = header ? (header.innerText || '') : '';
+      const list = document.querySelector({list_selector});
+      if (!list) return false;
+      const accounts = [...list.querySelectorAll('.dropdown-account-switcher-list-item')].filter(el =>
+        !el.classList.contains('dropdown-account-switcher-list-item-indented')
+        && !el.classList.contains('dropdown-account-switcher-list-see-all')
+      );
+      const match = accounts.find(el => headerText.includes((el.innerText || '').trim()));
+      if (!match) return false;
+      if (match.querySelector('.dropdown-account-switcher-list-item-label-expanded')) return true;
+      match.click();
+      return true;
+    }})()"""
+
+
+def _close_switcher_js():
+    header_selector = json.dumps(SITE_SWITCHER_HEADER_SELECTOR)
+    return f"""(() => {{
+      const header = document.querySelector({header_selector});
+      if (header && header.getAttribute('aria-expanded') === 'true') header.click();
+      return true;
+    }})()"""
+
+
+def _header_text_js():
+    header_selector = json.dumps(SITE_SWITCHER_HEADER_SELECTOR)
+    return f"""(() => {{
+      const header = document.querySelector({header_selector});
+      return header ? (header.innerText || '').trim() : '';
+    }})()"""
+
+
+def _site_header_js(marketplace_id, hostname):
+    wanted_id = json.dumps(marketplace_id)
+    wanted_host = json.dumps(str(hostname or "").lower())
+    header_selector = json.dumps(SITE_SWITCHER_HEADER_SELECTOR)
+    return f"""(() => {{
+      const href = location.href;
+      const host = (location.hostname || '').toLowerCase();
+      const ready = document.readyState === 'interactive' || document.readyState === 'complete';
+      const headerEl = document.querySelector({header_selector});
+      const header = headerEl ? (headerEl.innerText || '').trim() : '';
+      let mkid = '';
+      try {{
+        mkid = new URL(href).searchParams.get('mons_sel_mkid') || '';
+      }} catch (e) {{
+        mkid = '';
+      }}
+      const byId = mkid.indexOf({wanted_id}) >= 0;
+      const byHost = !mkid && host === {wanted_host};
+      return {{ready, header, byId, byHost, mkid, host, readyState: document.readyState}};
     }})()"""
 
 
@@ -467,21 +572,3 @@ def _click_site_option_js(flag):
       return true;
     }})()"""
 
-
-def _site_marketplace_js(marketplace_id, hostname):
-    wanted_id = json.dumps(marketplace_id)
-    wanted_host = json.dumps(str(hostname or "").lower())
-    return f"""(() => {{
-      const href = location.href;
-      const host = (location.hostname || '').toLowerCase();
-      const ready = document.readyState === 'interactive' || document.readyState === 'complete';
-      let mkid = '';
-      try {{
-        mkid = new URL(href).searchParams.get('mons_sel_mkid') || '';
-      }} catch (e) {{
-        mkid = '';
-      }}
-      const byId = mkid.indexOf({wanted_id}) >= 0;
-      const byHost = !mkid && host === {wanted_host};
-      return {{matched: ready && (byId || byHost), mkid, host, readyState: document.readyState}};
-    }})()"""

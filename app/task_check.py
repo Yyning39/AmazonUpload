@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from app.browser import country_code
+from app.browser import country_code, cross_site_code
 from app.picture_save import PictureSourceError, _is_local_path, image_src_list
 
 
@@ -36,11 +36,14 @@ def check_excel(task, addresses):
 def _check_identity(task):
     if not str(task.get("task_id") or "").strip():
         return "TASK_ID_EMPTY", "TASK_ID 为空"
-    for field, label in (("main_country", "MAIN_COUNTRY"), ("cross_country", "CROSS_COUNTRY")):
-        try:
-            country_code(task.get(field))
-        except ValueError:
-            return "COUNTRY_INVALID", f"{label} 无法识别为七国代码"
+    try:
+        country_code(task.get("main_country"))
+    except ValueError:
+        return "COUNTRY_INVALID", "MAIN_COUNTRY 无法识别为有独立窗口的国家"
+    try:
+        cross_site_code(task.get("cross_country"))
+    except ValueError:
+        return "COUNTRY_INVALID", "CROSS_COUNTRY 无法识别为账户下拉里的国家"
     sku = str(task.get("sku") or "").strip()
     asin = str(task.get("asin") or "").strip()
     if not sku and not asin:
@@ -49,12 +52,12 @@ def _check_identity(task):
 
 
 def _check_addresses(addresses):
-    if not addresses:
+    if not addresses or not any(str(value or "").strip() for value in addresses):
         return "IMG_EMPTY", "IMAGES 为空"
     for index, value in enumerate(addresses):
         item = str(value or "").strip()
         if not item:
-            return "IMG_ITEM_EMPTY", f"IMAGES[{index}] 为空"
+            continue
         if item.lower().startswith(("http://", "https://")):
             continue
         if _is_local_path(item) and Path(item).is_file():

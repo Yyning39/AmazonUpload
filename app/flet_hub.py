@@ -6,10 +6,13 @@ import asyncio
 import calendar
 import csv
 import io
+import json
+import logging
 
 import flet as ft
 
 from app.browser import COUNTRY_PORTS, launch_chrome
+from app.cl_task import list_followed_tasks, start_polling
 from app.config_loader import bundle_dir
 from app.file_pick import explain_read_failure
 from app.hub_ui import (
@@ -20,11 +23,8 @@ from app.hub_ui import (
     RECORD_MERGE,
     RECORD_MERGE_HEADS,
     _as_code,
-    _attach_task_ids,
-    _clip_text,
     _group_visible,
     _load_last_upload,
-    _match_sites,
     _paginate,
     _parse_clock,
     _pill_colors,
@@ -33,8 +33,6 @@ from app.hub_ui import (
     _sort_groups_newest,
     _time_filter_error,
     append_aplus_log,
-    group_upload_rows,
-    load_upload_records,
     read_login_state,
 )
 from app.pipeline import run
@@ -66,8 +64,8 @@ SLIDE = ft.Animation(180, ft.AnimationCurve.EASE_OUT)
 COLUMN_FLEX = {
     "time": 16,
     "task_id": 14,
-    "country": 8,
-    "market": 8,
+    "country": 14,
+    "market": 15,
     "sku": 16,
     "asin": 12,
     "kind": 10,
@@ -80,10 +78,134 @@ COLUMN_FLEX = {
 }
 HEADS = RECORD_MERGE_HEADS + RECORD_DETAIL_HEADS
 KEYS = RECORD_MERGE + RECORD_DETAIL
+_HIDDEN_COLUMNS = {"page_slot", "reason"}
+SHOW_KEYS = tuple(key for key in KEYS if key not in _HIDDEN_COLUMNS)
+_DISPLAY_HEADS = {
+    "time": "CREATION_DATE",
+    "task_id": "TASK_ID",
+    "country": "MAIN_COUNTRY",
+    "market": "CROSS_COUNTRY",
+    "sku": "SKU",
+    "asin": "ASIN",
+    "kind": "ACTIONS",
+    "file": "IMAGES",
+    "status": "TASK_STATUS",
+    "error_code": "ERROR_CODE",
+    "error_detail": "ERROR_MESSAGE",
+}
+SHOW_HEADS = tuple(_DISPLAY_HEADS.get(key, head) for head, key in zip(HEADS, KEYS) if key not in _HIDDEN_COLUMNS)
+SHOW_DETAIL = tuple(key for key in RECORD_DETAIL if key not in _HIDDEN_COLUMNS)
+
+
+def _head_lines(text):
+    """表头在第一个下划线后换行，避免列名被缩成省略号。"""
+    raw = str(text or "")
+    if "_" not in raw:
+        return raw
+    left, right = raw.split("_", 1)
+    return f"{left}_\n{right}"
+CELL_PAD = ft.Padding(left=4, right=16, top=0, bottom=0)
+
+
+def _match_main_country(row, sites):
+    """展示页上方的国家只对主站 MAIN_COUNTRY。跨站相同不算进这个国家。"""
+    if not sites:
+        return True
+    code = _as_code(row.get("country"))
+    raw = str(row.get("country") or "").strip()
+    names = {EU_NAMES.get(item, item) for item in sites}
+    return code in set(sites) or raw in set(sites) or raw in names
 
 
 def _hot(data):
     return data is True or str(data).lower() == "true"
+
+
+def _status_pill(value):
+    """和表格结果列同一套圆角色块。"""
+    fg, bg = _pill_colors(value)
+    return ft.Container(
+        bgcolor=bg,
+        border_radius=11,
+        padding=ft.Padding(left=8, right=8, top=2, bottom=2),
+        content=ft.Text(value, size=12, color=fg, no_wrap=True, font_family=FONT),
+    )
+
+
+def _status_filter(value, on_select):
+    """日期和查询之间的状态下拉。选项颜色与表格里的 New、Process、Confirm、Error 一致。"""
+    face = ft.Container(alignment=ft.Alignment.CENTER, expand=True)
+
+    def paint(current):
+        if current:
+            shown = _status_pill(current)
+        else:
+            shown = ft.Text("全部状态", size=14, color=INK, font_family=FONT, no_wrap=True)
+        face.content = ft.Row(
+            height=FIELD_H,
+            spacing=22,
+            alignment=ft.MainAxisAlignment.CENTER,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                shown,
+                ft.Icon(ft.CupertinoIcons.CHEVRON_DOWN, size=11, color=MUTED),
+            ],
+        )
+
+    paint(value)
+
+    def choose(status):
+        def handler(e):
+            paint(status)
+            on_select(status)
+
+        return handler
+
+    quiet = {
+        ft.ControlState.DEFAULT: SHEET,
+        ft.ControlState.HOVERED: SHEET,
+        ft.ControlState.FOCUSED: SHEET,
+        ft.ControlState.PRESSED: SHEET,
+    }
+    return ft.PopupMenuButton(
+        content=ft.Container(
+            width=128,
+            height=FIELD_H,
+            bgcolor=SHEET,
+            border=ft.Border.all(1, LINE),
+            border_radius=FIELD_R,
+            padding=ft.Padding(left=8, right=4, top=0, bottom=0),
+            alignment=ft.Alignment.CENTER,
+            content=face,
+        ),
+        padding=0,
+        elevation=6,
+        shadow_color="#33000000",
+        bgcolor=ft.Colors.with_opacity(0.96, SHEET),
+        menu_position=ft.PopupMenuPosition.UNDER,
+        shape=ft.RoundedRectangleBorder(radius=10),
+        menu_padding=ft.Padding.symmetric(vertical=4, horizontal=8),
+        style=ft.ButtonStyle(
+            bgcolor=quiet,
+            overlay_color=ft.Colors.TRANSPARENT,
+            elevation=0,
+            padding=ft.Padding.all(0),
+            shadow_color=ft.Colors.TRANSPARENT,
+            side=ft.BorderSide(0, SHEET),
+            visual_density=ft.VisualDensity.COMPACT,
+        ),
+        items=[
+            ft.PopupMenuItem(
+                content=ft.Text("全部状态", size=13, color=INK, font_family=FONT),
+                height=36,
+                on_click=choose(""),
+            ),
+            *[
+                ft.PopupMenuItem(content=_status_pill(name), height=36, on_click=choose(name))
+                for name in ("New", "Process", "Confirm", "Error")
+            ],
+        ],
+    )
 
 
 def _page_size_dropdown(value, on_select):
@@ -820,14 +942,77 @@ class DatePanel:
         return ft.Column(spacing=gap, tight=True, controls=rows)
 
 
+def _rows_from_new(rows):
+    """把 CL 的 New 收成表格一行一条。不改状态。"""
+    mapped = []
+    for row in rows or []:
+        created = row.get("CREATION_DATE")
+        if hasattr(created, "strftime"):
+            moment = created.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            moment = str(created or "").strip()
+        actions = _json_items(row.get("ACTIONS"))
+        images = _json_items(row.get("IMAGES"))
+        filled = _filled_image_count(images)
+        kind = "、".join(str(item).strip() for item in actions if str(item).strip())
+        mapped.append({
+            "time": moment,
+            "task_id": str(row.get("TASK_ID") or "").strip(),
+            "country": str(row.get("MAIN_COUNTRY") or "").strip(),
+            "market": str(row.get("CROSS_COUNTRY") or "").strip(),
+            "sku": str(row.get("SKU") or "").strip(),
+            "asin": str(row.get("ASIN") or "").strip(),
+            "kind": kind,
+            "file": f"{filled} 张" if filled else "",
+            "page_slot": "",
+            "guid": str(row.get("AMZ_CROSS_TASK_GUID") or "").strip(),
+            "status": str(row.get("TASK_STATUS") or "New").strip() or "New",
+            "reason": str(row.get("ERROR_MESSAGE") or "").strip(),
+            "error_code": str(row.get("ERROR_CODE") or "").strip(),
+            "error_detail": str(row.get("ERROR_MESSAGE") or "").strip(),
+        })
+    return mapped
+
+
+def _filled_image_count(images):
+    """只数有地址的图。空位不占张数，也不改变后面的位置。"""
+    count = 0
+    for item in images or []:
+        if isinstance(item, dict):
+            text = item.get("src")
+        else:
+            text = item
+        if str(text or "").strip():
+            count += 1
+    return count
+
+
+def _json_items(value):
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    text = str(value).strip()
+    if not text:
+        return []
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError):
+        return [text]
+    if isinstance(parsed, list):
+        return parsed
+    return [parsed]
+
+
 class HubWindow:
     """Flet 窗口。构造时只记下路径，run 才打开界面。"""
 
-    def __init__(self, database_path, picture_log_path, aplus_log_path, progress_note=""):
+    def __init__(self, database_path, picture_log_path, aplus_log_path, progress_note="", config=None):
         self.database_path = Path(database_path)
         self.picture_log_path = Path(picture_log_path)
         self.aplus_log_path = Path(aplus_log_path)
         self.progress_note = progress_note or ""
+        self.config = config if isinstance(config, dict) else {}
         self.page = None
         self.page_name = "accounts"
         self.record_sites = set()
@@ -836,6 +1021,7 @@ class HubWindow:
         self.filter_to = ""
         self.filter_until_now = True
         self.record_query = ""
+        self.record_status = ""
         self.record_page = 1
         self.record_page_size = 10
         self.record_pages = 1
@@ -849,6 +1035,15 @@ class HubWindow:
         self._checked = []
         self._pending = []
         self._status = {}
+        self._record_rows = []
+        self.table = None
+        self.table_head = None
+        self._new_loading = False
+        self._new_error = ""
+        self._new_loaded_at = None
+        self._new_load_gen = 0
+        self._claim_started = False
+        self._progress_gen = 0
         set_listener(self._on_progress)
 
     def run(self):
@@ -867,12 +1062,15 @@ class HubWindow:
         self._build(page)
         self._show_accounts()
         if self.progress_note:
-            self._append_log(self.progress_note, 0, 1)
+            self.connection_label.value = self.progress_note
         for item in self._pending:
-            self._append_log(*item)
+            text, done, total = (list(item) + [0, 0])[:3]
+            self._append_log(text, done, total)
         self._pending.clear()
         page.update()
         page.run_task(self._watch_login)
+        if self.config.get("cl_db"):
+            page.run_task(self._watch_status)
 
     def _build(self, page):
         self.nav = {}
@@ -880,7 +1078,7 @@ class HubWindow:
         logo_box = ft.Image(src=str(logo), width=168, height=36, fit=ft.BoxFit.CONTAIN) if logo.is_file() else ft.Text("Aosom", color=SHEET, size=18)
         nav_rows = []
         self._nav_order = ("accounts", "records", "excel")
-        for key, label in (("accounts", "账号管理"), ("records", "上传记录"), ("excel", "选择 Excel")):
+        for key, label in (("accounts", "账号管理"), ("records", "任务"), ("excel", "选择 Excel")):
             caption = ft.Text(label, size=14, color=SIDE_TEXT, font_family=FONT)
             row = ft.Container(
                 height=48,
@@ -905,6 +1103,7 @@ class HubWindow:
             height=48 * len(nav_rows),
             controls=[ft.Column(spacing=0, tight=True, controls=nav_rows), self.nav_mark],
         )
+        self.connection_label = ft.Text("", size=11, color=SIDE_TEXT)
         self.progress_label = ft.Text("尚未开始", size=11, color=SIDE_TEXT)
         self.progress_bar = ft.ProgressBar(value=0, color=SHEET, bgcolor="#333333", bar_height=6)
         self.progress_log = ft.ListView(height=130, spacing=2, auto_scroll=True)
@@ -925,6 +1124,7 @@ class HubWindow:
                             spacing=6,
                             controls=[
                                 ft.Text("进度", size=13, color=SHEET, font_family=FONT),
+                                self.connection_label,
                                 self.progress_label,
                                 self.progress_bar,
                                 self.progress_log,
@@ -1157,7 +1357,7 @@ class HubWindow:
     def _show_records(self):
         self.page_name = "records"
         self._paint_nav()
-        self.title.value = "上传记录"
+        self.title.value = "任务"
         self.subtitle.value = ""
         self.subtitle.visible = False
         self.footer.value = ""
@@ -1182,6 +1382,7 @@ class HubWindow:
         self._query_button = _search_button(lambda e: self._apply_query())
         self.tabs = SiteTabs(self._choose_site)
         self.tabs.move(self._selected_code())
+        self.table_head = ft.Column(spacing=0, tight=True)
         self.table = ft.Column(
             spacing=0,
             scroll=ft.ScrollMode.AUTO,
@@ -1212,10 +1413,11 @@ class HubWindow:
                             padding=ft.Padding(left=12, right=12, top=0, bottom=0),
                             alignment=ft.Alignment.CENTER_LEFT,
                             on_click=lambda e: self._open_dates(),
-                            content=self.date_label,
+                            content=                        self.date_label,
                         ),
+                        _status_filter(self.record_status, self._choose_status),
                         self._query_button,
-                        _refresh_button(lambda e: self._fill()),
+                        _refresh_button(lambda e: self._reload_new()),
                     ],
                 ),
             ],
@@ -1240,7 +1442,7 @@ class HubWindow:
                     expand=True,
                     spacing=12,
                     horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
-                    controls=[filters, self.table, footer],
+                    controls=[filters, self.table_head, self.table, footer],
                 ),
             )
         ]
@@ -1309,6 +1511,13 @@ class HubWindow:
         self.page.pop_dialog()
         self.page.update()
 
+    def _choose_status(self, status):
+        self.record_status = str(status or "").strip()
+        self.record_page = 1
+        if self.page_name == "records":
+            self._fill()
+            self.page.update()
+
     def _apply_query(self):
         self.record_query = (self.task_field.value or "").strip()
         if self.filter_from or self.filter_to:
@@ -1328,96 +1537,235 @@ class HubWindow:
         if not ok:
             self._set_footer(message)
             return
-        rows = [row for row in load_upload_records(self.picture_log_path, self.aplus_log_path) if _match_sites(row, self.record_sites)]
-        _attach_task_ids(rows, self.database_path)
+        rows = [row for row in self._record_rows if _match_main_country(row, self.record_sites)]
+        if self.record_status:
+            rows = [row for row in rows if str(row.get("status") or "").strip() == self.record_status]
         shown = _sort_groups_newest(
             [
-                group
-                for group in group_upload_rows(rows)
-                if _group_visible(group, self.record_span, self.filter_from, self.filter_to, self.filter_until_now, self.last_upload_at, self.record_query)
+                [row]
+                for row in rows
+                if _group_visible([row], self.record_span, self.filter_from, self.filter_to, self.filter_until_now, self.last_upload_at, self.record_query)
             ]
         )
         page_groups, page, pages = _paginate(shown, self.record_page, self.record_page_size)
         self.record_page = page
         self.record_pages = pages
         self.record_shown_count = len(shown)
+        kept = {}
+        for group, flag in zip(self._page_groups, self._checked):
+            if group:
+                kept[str(group[0].get("guid") or "")] = flag
         self._page_groups = page_groups
-        self._checked = [False] * len(page_groups)
+        self._checked = [kept.get(str(group[0].get("guid") or ""), False) if group else False for group in page_groups]
         if len(self.record_sites) == 1:
             site_name = EU_NAMES.get(next(iter(self.record_sites)), "")
-            self.subtitle.value = f"当前只看{site_name}。点「全部」恢复，点表格里的国家或站点也会筛选。"
+            self.subtitle.value = f"当前只看{site_name}主站。点「全部」恢复。"
             self.subtitle.visible = True
         else:
             self.subtitle.value = ""
             self.subtitle.visible = False
+        self._set_footer(self._new_note(len(shown)))
         self._render_table()
         self._render_pager()
+
+    def _new_note(self, shown):
+        if self._new_loading:
+            return "正在读取任务状态…"
+        total = len(self._record_rows)
+        if self._new_error and not total:
+            return self._new_error
+        stamp = self._new_loaded_at.strftime("%H:%M:%S") if self._new_loaded_at else ""
+        when = f"（{stamp}）" if stamp else ""
+        tally = self._status_tally()
+        extra = f"{tally}。" if tally else ""
+        if shown != total:
+            note = f"显示 {shown} / {total} 条{when}。{extra}状态和错误每分钟更新，不领取。"
+        else:
+            note = f"已读入 {total} 条{when}。{extra}状态和错误每分钟更新，不领取。"
+        if self._new_error:
+            return self._new_error + " 仍显示上次读入。"
+        return note
+
+    def _status_tally(self):
+        counts = {}
+        for row in self._record_rows:
+            name = str(row.get("status") or "").strip() or "New"
+            counts[name] = counts.get(name, 0) + 1
+        order = ("New", "Process", "Confirm", "Error")
+        parts = [f"{name} {counts[name]}" for name in order if counts.get(name)]
+        for name, count in counts.items():
+            if name not in order:
+                parts.append(f"{name} {count}")
+        return "，".join(parts)
+
+    def _reload_new(self):
+        self.page.run_task(self._reload_followed)
+        if self.page_name == "records":
+            self._set_footer("正在读取任务状态…")
+            self.page.update()
+
+    async def _watch_status(self):
+        """先把当前 New 读进展示页，再允许五国线程领取。之后每分钟重读状态和错误。"""
+        await self._reload_followed()
+        while True:
+            await asyncio.sleep(60)
+            await self._reload_followed()
+
+    async def _reload_followed(self):
+        """只读 New，以及这张表已经在看的那些行。不改库里的状态。"""
+        self._new_load_gen += 1
+        generation = self._new_load_gen
+        self._new_loading = True
+        guids = [
+            str(row.get("guid") or "").strip()
+            for row in list(self._record_rows)
+            if str(row.get("guid") or "").strip()
+        ]
+        try:
+            rows = await asyncio.to_thread(list_followed_tasks, self.config, guids)
+            error = ""
+        except Exception as exc:
+            rows = []
+            error = "读取任务状态失败：" + str(exc)
+        await self._apply_new_rows(generation, rows, error)
+
+    async def _apply_new_rows(self, generation, rows, error):
+        if generation != self._new_load_gen:
+            return
+        self._new_loading = False
+        self._new_error = error
+        if not error:
+            self._record_rows = _rows_from_new(rows)
+            self._new_loaded_at = datetime.now().replace(microsecond=0)
+            self._start_claim_threads()
+        if self.page_name == "records" and self.table is not None:
+            try:
+                self._fill()
+            except Exception as exc:
+                self._new_error = "刷新表格失败：" + str(exc)
+                self._set_footer(self._new_error)
+            self.page.update()
+
+    def _start_claim_threads(self):
+        """展示页已经记下这次读入的行之后，才启动五国领取。只启动一次。"""
+        if self._claim_started or not self.config.get("cl_db"):
+            return
+        self._claim_started = True
+        logging.getLogger(__name__).info("展示页已读入 %s 条，开始领取", len(self._record_rows))
+        start_polling(
+            self.config,
+            self.database_path,
+            self.picture_log_path,
+            self.aplus_log_path,
+        )
 
     def _render_table(self):
         all_on = bool(self._checked) and all(self._checked)
         self._header_check = _check_box(all_on, self._toggle_all)
         self._row_checks = []
-        header = self._line(
-            [
-                ft.Container(width=42, content=self._header_check),
-                *[self._head(text, key) for text, key in zip(HEADS, KEYS)],
-            ]
+        header = ft.Row(
+            spacing=0,
+            vertical_alignment=ft.CrossAxisAlignment.START,
+            controls=[
+                ft.Container(width=48, padding=ft.Padding(right=12), content=self._header_check),
+                *[self._head(text, key) for text, key in zip(SHOW_HEADS, SHOW_KEYS)],
+            ],
         )
         body = []
         if not self._page_groups:
-            body.append(ft.Container(height=72, alignment=ft.Alignment.CENTER_LEFT, content=ft.Text("没有记录", color=MUTED)))
+            if self._new_loading and not self._record_rows:
+                empty = "正在读取"
+            elif self._new_error and not self._record_rows:
+                empty = "读取失败"
+            else:
+                empty = "没有任务"
+            body.append(ft.Container(height=72, alignment=ft.Alignment.CENTER_LEFT, content=ft.Text(empty, color=MUTED)))
         for index, group in enumerate(self._page_groups):
             body.append(self._group_row(index, group))
-        self.table.controls = [header, ft.Divider(height=1, thickness=1, color="#F3F4F6"), *body]
+        self.table_head.controls = [
+            ft.Container(
+                bgcolor=SHEET,
+                border=ft.Border.only(bottom=ft.BorderSide(1, "#E5E7EB")),
+                padding=ft.Padding(bottom=6),
+                content=header,
+            )
+        ]
+        self.table.controls = body
 
     def _head(self, text, key):
-        label = ft.Text(text, size=12, color=MUTED, max_lines=1, no_wrap=True, overflow=ft.TextOverflow.ELLIPSIS)
+        label = ft.Text(
+            _head_lines(text),
+            size=12,
+            color=MUTED,
+            font_family=FONT,
+            max_lines=2,
+            no_wrap=False,
+        )
+        tip = ft.Tooltip(
+            message=str(text or ""),
+            bgcolor="#111827",
+            text_style=ft.TextStyle(size=12, color="#FFFFFF"),
+            padding=ft.Padding(left=10, top=8, right=10, bottom=8),
+        )
+        box = dict(padding=CELL_PAD, tooltip=tip, content=label, alignment=ft.Alignment.TOP_LEFT)
         if key == "status":
-            return ft.Container(width=72, content=label)
-        return ft.Container(expand=COLUMN_FLEX[key], content=label)
+            box["width"] = 120
+        elif key == "country":
+            box["width"] = 76
+        elif key == "market":
+            box["width"] = 76
+        else:
+            box["expand"] = COLUMN_FLEX[key]
+        return ft.Container(**box)
 
     def _line(self, controls):
         return ft.Row(spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER, controls=controls)
 
     def _cell(self, key, content, tooltip=None, on_click=None):
-        box = dict(alignment=ft.Alignment.CENTER_LEFT, tooltip=tooltip or None, on_click=on_click, content=content)
+        box = dict(
+            alignment=ft.Alignment.CENTER_LEFT,
+            padding=CELL_PAD,
+            tooltip=tooltip or None,
+            on_click=on_click,
+            content=content,
+        )
         if key == "status":
-            box["width"] = 72
+            box["width"] = 120
+        elif key == "country":
+            box["width"] = 76
+        elif key == "market":
+            box["width"] = 76
         else:
             box["expand"] = COLUMN_FLEX[key]
         return ft.Container(**box)
 
     def _group_row(self, index, group):
         head = group[0]
-        details = ft.Column(spacing=2, tight=True, controls=[self._detail_line(row) for row in group])
+        details = ft.Column(spacing=6, tight=True, controls=[self._detail_line(row) for row in group])
         merges = []
         for key in RECORD_MERGE:
             raw = "" if head.get(key) is None else str(head.get(key))
             shown = _short_clock(raw) if key == "time" else raw
             text = ft.Text(shown or "—", size=13, color=INK, max_lines=1, no_wrap=True, overflow=ft.TextOverflow.ELLIPSIS)
-            click = (lambda e, value=raw: self._choose_from_cell(value)) if key in {"country", "market"} else None
-            merges.append(self._cell(key, text, tooltip=raw, on_click=click))
+            merges.append(self._cell(key, text, tooltip=raw))
         box = _check_box(self._checked[index], lambda e, item=index: self._toggle_one(item, e.control.value))
         self._row_checks.append(box)
         return ft.Container(
             border=ft.Border.only(bottom=ft.BorderSide(1, "#F3F4F6")),
             padding=ft.Padding(top=6, bottom=6, left=0, right=0),
-            content=self._line([ft.Container(width=42, content=box), *merges, ft.Container(expand=sum(COLUMN_FLEX[key] for key in RECORD_DETAIL), content=details)]),
+            content=self._line([
+                ft.Container(width=48, padding=ft.Padding(right=12), content=box),
+                *merges,
+                ft.Container(expand=sum(COLUMN_FLEX[key] for key in SHOW_DETAIL), content=details),
+            ]),
         )
 
     def _detail_line(self, row):
         cells = []
-        for key in RECORD_DETAIL:
+        for key in SHOW_DETAIL:
             raw = "" if row.get(key) is None else str(row.get(key))
             if key == "status":
-                fg, bg = _pill_colors(raw or "—")
-                pill = ft.Container(
-                    bgcolor=bg,
-                    border_radius=11,
-                    padding=ft.Padding(left=8, right=8, top=2, bottom=2),
-                    content=ft.Text(raw or "—", size=12, color=fg, no_wrap=True),
-                )
-                cells.append(self._cell(key, pill, tooltip=raw))
+                cells.append(self._cell(key, _status_pill(raw or "—"), tooltip=raw))
             else:
                 text = ft.Text(raw or "—", size=13, color=INK, max_lines=1, no_wrap=True, overflow=ft.TextOverflow.ELLIPSIS)
                 tip = None
@@ -1430,11 +1778,6 @@ class HubWindow:
                     )
                 cells.append(self._cell(key, text, tooltip=tip))
         return self._line(cells)
-
-    def _choose_from_cell(self, raw):
-        code = _as_code(raw)
-        if code in EU_NAMES:
-            self._choose_site(code)
 
     def _toggle_one(self, index, value):
         if 0 <= index < len(self._checked):
@@ -1511,12 +1854,12 @@ class HubWindow:
             return
         buffer = io.StringIO()
         writer = csv.writer(buffer)
-        writer.writerow(list(RECORD_MERGE_HEADS) + list(RECORD_DETAIL_HEADS))
+        writer.writerow(list(SHOW_HEADS))
         for row in rows:
-            writer.writerow([row.get(key, "") for key in KEYS])
+            writer.writerow([row.get(key, "") for key in SHOW_KEYS])
         path = await ft.FilePicker().save_file(
             dialog_title="下载勾选",
-            file_name="上传记录.csv",
+            file_name="New任务.csv",
             file_type=ft.FilePickerFileType.CUSTOM,
             allowed_extensions=["csv"],
             src_bytes=buffer.getvalue().encode("utf-8-sig"),
@@ -1570,7 +1913,7 @@ class HubWindow:
             return
         append_aplus_log(self.aplus_log_path, report)
         count = len((report or {}).get("results") or [])
-        self._set_footer(f"本次处理 {count} 行。上传记录已刷新。")
+        self._set_footer(f"本次处理 {count} 行。")
         self._append_log(f"本次处理 {count} 行", 1, 1)
         self._show_records()
         self.page.update()
@@ -1596,9 +1939,20 @@ class HubWindow:
             self.progress_bar.value = max(0, min(1, done / total))
         else:
             self.progress_bar.value = None
+            self._progress_gen += 1
+            if self.page is not None:
+                self.page.run_task(self._rest_progress, self._progress_gen)
         self.progress_log.controls.append(ft.Text(str(text or ""), size=11, color=SIDE_TEXT))
         if len(self.progress_log.controls) > 200:
             del self.progress_log.controls[:-200]
+
+    async def _rest_progress(self, generation):
+        """有新进度时条在动。两秒没有新消息就停住，避免任务结束后还在滑。"""
+        await asyncio.sleep(2)
+        if generation != self._progress_gen or self.progress_bar.value is not None:
+            return
+        self.progress_bar.value = 0
+        self.progress_bar.update()
 
     def _alert(self, title, message):
         self.page.show_dialog(

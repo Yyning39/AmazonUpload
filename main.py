@@ -5,7 +5,6 @@ from pathlib import Path
 
 import logging
 
-from app.cl_task import start_polling
 from app.config_loader import app_dir, bundle_dir, load_config
 from app.flet_hub import HubWindow
 from app.logging_setup import setup_logging
@@ -36,7 +35,19 @@ def _hide_frozen_console():
 def main():
     """打开账号管理窗口。不自动拉起 Chrome。"""
     _hide_frozen_console()
-    config = load_config(bundle_dir() / "config" / "settings.json")
+    settings = bundle_dir() / "config" / "settings.json"
+    try:
+        config = load_config(settings)
+    except FileNotFoundError:
+        window = HubWindow(
+            app_dir() / "data" / "queue.sqlite3",
+            app_dir() / "picture_log.md",
+            app_dir() / "aplus_log.md",
+            "未找到 config/settings.json，无法连接数据库。",
+            {},
+        )
+        window.run()
+        return
     log_dir = Path(str(config.get("log_dir") or "logs"))
     if not log_dir.is_absolute():
         log_dir = app_dir() / log_dir
@@ -54,8 +65,8 @@ def main():
         app_dir() / "picture_log.md",
         app_dir() / "aplus_log.md",
         source_note(config),
+        config,
     )
-    start_polling(config, path, window.picture_log_path, window.aplus_log_path)
     window.run()
 
 

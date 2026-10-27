@@ -2,38 +2,38 @@
 setlocal
 cd /d "%~dp0"
 
-echo ¹Ø±ÕÕýÔÚÔËÐÐµÄ¾É°æ±¾...
+echo ï¿½Ø±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ÐµÄ¾É°æ±¾...
 taskkill /F /IM AosomImageAplus.exe >nul 2>&1
 
-echo °²×°ÒÀÀµ...
+echo ï¿½ï¿½×°ï¿½ï¿½ï¿½ï¿½...
 python -m pip install -r requirements.txt
 if errorlevel 1 (
-  echo ÒÀÀµ°²×°Ê§°Ü£¬¾É°æ±¾Î´É¾³ý¡£
+  echo ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½×°Ê§ï¿½Ü£ï¿½ï¿½É°æ±¾Î´É¾ï¿½ï¿½ï¿½ï¿½
   pause
   exit /b 1
 )
 
-echo É¾³ý¾É°æ±¾...
+echo É¾ï¿½ï¿½ï¿½É°æ±¾...
 if exist "dist\AosomImageAplus.exe" del /f /q "dist\AosomImageAplus.exe"
 if exist "dist\AosomImageAplus\" (
   attrib -r "dist\AosomImageAplus\*" /s /d >nul 2>&1
   rmdir /s /q "dist\AosomImageAplus"
 )
 if exist "dist\AosomImageAplus\" (
-  echo ¾É°æ±¾É¾²»µô¡£ÇëÏÈ¹Ø±ÕÕýÔÚÊ¹ÓÃ dist\AosomImageAplus µÄ³ÌÐòºÍ±à¼­Æ÷±êÇ©£¬ÔÙÖØÐÂÔËÐÐ±¾½Å±¾¡£
+  echo ï¿½É°æ±¾É¾ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È¹Ø±ï¿½ï¿½ï¿½ï¿½ï¿½Ê¹ï¿½ï¿½ dist\AosomImageAplus ï¿½Ä³ï¿½ï¿½ï¿½Í±à¼­ï¿½ï¿½ï¿½ï¿½Ç©ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð±ï¿½ï¿½Å±ï¿½ï¿½ï¿½
   pause
   exit /b 1
 )
 
-echo ´ò°üÐÂ°æ±¾...
+echo ï¿½ï¿½ï¿½ï¿½Â°æ±¾...
 python -m PyInstaller --noconfirm AosomImageAplus.spec
 if errorlevel 1 (
-  echo ´ò°üÊ§°Ü¡£
+  echo ï¿½ï¿½ï¿½Ê§ï¿½Ü¡ï¿½
   pause
   exit /b 1
 )
 
-echo ÐÂ°æ±¾ÒÑÉú³É£ºdist\AosomImageAplus.exe
-echo °ÑÕâ¸ö exe ¿½µ½±ðµÄÎÄ¼þ¼Ð¼´¿É¡£Í¬Ä¿Â¼·ÅÉÏ config\settings.local.json£¬»òÖ±½Ó·Å settings.local.json¡£
+echo ï¿½Â°æ±¾ï¿½ï¿½ï¿½ï¿½ï¿½É£ï¿½dist\AosomImageAplus.exe
+echo ï¿½ï¿½ï¿½ï¿½ï¿½ exe ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½ï¿½Ð¼ï¿½ï¿½É¡ï¿½Í¬Ä¿Â¼ï¿½ï¿½ï¿½ï¿½ config\settings.local.jsonï¿½ï¿½ï¿½ï¿½Ö±ï¿½Ó·ï¿½ settings.local.jsonï¿½ï¿½
 pause
 exit /b 0

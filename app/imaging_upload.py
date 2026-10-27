@@ -9,7 +9,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from app.browser import country_code
+from app.browser import image_section_code
 from app.cdp import BrowserConnectionError
 
 _picture_log_lock = threading.Lock()
@@ -19,6 +19,18 @@ class NeedsManual(Exception):
     """页面元素找不到，或确认条件还没补充。"""
 
 
+class ComponentMissing(NeedsManual):
+    """文档已加载完，要等的组件还没出现。调用方可以刷新页面再试。"""
+
+    def __init__(self, component):
+        self.component = str(component or "组件")
+        super().__init__(self.component + "未出现")
+
+
+class ProductListEmpty(NeedsManual):
+    """搜索已经提交，页面给出的是空结果。刷新也不会变出商品。"""
+
+
 class UploadNotConfirmed(NeedsManual):
     """新图已经交给这一格，但成功标志没有出现。"""
 
@@ -26,6 +38,8 @@ class UploadNotConfirmed(NeedsManual):
 # 下面几项是在已登录的西班牙图片管理页上看到的。
 SEARCH_INPUT_SELECTOR = '[data-testid="search_input"] input[type="search"]'
 PRODUCT_LIST_SELECTOR = ".infinite-scroll-component"
+# 没有商品时列表节点不渲染，换成这块居中区域。认的是布局类名，不读里面的句子。
+EMPTY_RESULT_SELECTOR = "div.flex.flex-col.items-center.w-full.py-12"
 COUNTRY_SECTION_TESTID = "ou-section-{code}"
 FILE_INPUT_SELECTOR = 'input[type="file"][data-testid="upload-image-input"]'
 UPLOAD_BUTTON_SELECTOR = '[data-testid="upload-button"]'
@@ -47,21 +61,22 @@ DELETE_CONFIRM_BUTTON_SELECTOR = '[data-capture="variant-delete-confirmation-sub
 IMAGE_EXTENSIONS = {".gif", ".pjp", ".jfif", ".jpe", ".pjpeg", ".jpeg", ".jpg", ".png"}
 
 
-def wait_for_element(session, selector, timeout=10, interval=0.25):
+def wait_for_element(session, selector, timeout=10, interval=0.25, component=""):
     """轮询直到 selector 存在且 offsetParent 不为空。
 
     间隔与原项目页面轮询一样，只使用 time.sleep。
     超时抛 NeedsManual，并写明 selector、耗时和 readyState。
+    文档已加载完但组件没出现时抛 ComponentMissing。
     """
-    _poll_until(session, selector, timeout, interval, require_ready=False)
+    _poll_until(session, selector, timeout, interval, require_ready=False, component=component)
 
 
-def wait_for_ready(session, selector, timeout=10, interval=0.25):
+def wait_for_ready(session, selector, timeout=10, interval=0.25, component=""):
     """先等到 readyState 为 interactive 或 complete，再等到标志元素出现。"""
-    _poll_until(session, selector, timeout, interval, require_ready=True)
+    _poll_until(session, selector, timeout, interval, require_ready=True, component=component)
 
 
-def _poll_until(session, selector, timeout, interval, require_ready):
+def _poll_until(session, selector, timeout, interval, require_ready, component=""):
     started = time.monotonic()
     deadline = started + float(timeout)
     last_state = "未知"
@@ -73,6 +88,8 @@ def _poll_until(session, selector, timeout, interval, require_ready):
         if appeared and (ready or not require_ready):
             return
         if time.monotonic() >= deadline:
+            if component and last_state == "complete":
+                raise ComponentMissing(component)
             elapsed = time.monotonic() - started
             kind = "等待页面就绪超时" if require_ready else "等待元素超时"
             raise NeedsManual(
@@ -94,34 +111,182 @@ def upload_images(session, keyword, country, directory, timeout=30, log_path=Non
     """搜索关键词，并把目录里的图片逐位上传。
 
     directory 是 picture/<国家代码>/<sku>/<站点代码>。
-    country 决定页面上的站点模块。
+    country 决定页面上的站点模块。英国模块是 global。
     返回每张数字图片的结果。0 对应 MAIN，01 对应 PT01，02 对应 PT02，依次类推。
     不上传 FRONT、SIDE、BACK。
     """
-    code = country_code(country)
+    code = image_section_code(country)
     text = str(keyword or "").strip()
     if not text:
         raise NeedsManual("关键词为空")
     directory = Path(directory)
-    if on_progress:
-        on_progress("搜索商品")
-    _search(session, text, timeout)
-    if on_progress:
-        on_progress("打开国家模块")
-    _reveal_country(session, code, timeout)
+    _open_product(session, text, code, timeout, on_progress)
     return _upload_slots(session, code, directory, timeout, log_path, log_context, on_progress, before_each)
+
+
+def _open_product(session, keyword, section, timeout, on_progress=None):
+    """搜索并打开国家模块。页面已加载完但组件没出来时刷新，最多三次。"""
+    missing = None
+    for refresh in range(4):
+        try:
+            if on_progress:
+                on_progress("搜索商品")
+            _search(session, keyword, timeout)
+            if on_progress:
+                on_progress("打开国家模块")
+            _reveal_country(session, section, timeout)
+            return
+        except ComponentMissing as exc:
+            missing = exc
+            if refresh >= 3:
+                break
+            if on_progress:
+                on_progress(f"{exc.component}未出现，刷新页面第 {refresh + 1} 次")
+            _reload_page(session, timeout)
+    raise NeedsManual(f"{missing.component}未出现，已刷新三次")
+
+
+def _reload_page(session, timeout):
+    """刷新当前页，并等到新文档加载完成。不把刷新前的旧页面当成已经完成。"""
+    session.evaluate("window.__aosomReload = 1")
+    session.call("Page.reload")
+    deadline = time.monotonic() + float(timeout)
+    while True:
+        try:
+            state = session.evaluate(
+                "({ready: document.readyState, mark: window.__aosomReload || 0})"
+            ) or {}
+        except Exception:
+            state = {}
+        if state.get("mark") != 1 and state.get("ready") == "complete":
+            return
+        if time.monotonic() >= deadline:
+            raise NeedsManual("刷新页面后没有加载完成")
+        time.sleep(0.25)
 
 
 def _search(session, keyword, timeout):
     # 导航只等到图片管理标记。搜索框由前端稍后渲染，这里再轮询。
-    wait_for_ready(session, SEARCH_INPUT_SELECTOR, timeout=timeout)
+    wait_for_ready(session, SEARCH_INPUT_SELECTOR, timeout=timeout, component="搜索框")
     filled = session.evaluate(_fill_search_js(keyword))
     if not filled:
         raise NeedsManual("无法填写搜索框")
     if not session.evaluate(_press_enter_js()):
         raise NeedsManual("无法在搜索框回车")
-    wait_for_ready(session, PRODUCT_LIST_SELECTOR, timeout=timeout)
+    _wait_product_list(session, keyword, timeout)
     _wait_for_search(session, keyword, timeout)
+
+
+def _wait_product_list(session, keyword, timeout):
+    """等到商品列表出现。空结果立刻结束，不把空结果当成组件没出来。"""
+    started = time.monotonic()
+    deadline = started + float(timeout)
+    last_ready = "未知"
+    facts = {}
+    while True:
+        facts = session.evaluate(_product_list_facts_js(keyword)) or {}
+        last_ready = facts.get("readyState") or "未知"
+        ready = last_ready in {"interactive", "complete"}
+        if ready and facts.get("present") and facts.get("visible"):
+            return
+        if ready and facts.get("empty") and facts.get("submitted"):
+            raise ProductListEmpty("商品列表不显示，搜索结果为空")
+        if time.monotonic() >= deadline:
+            if facts.get("empty") and facts.get("submitted"):
+                raise ProductListEmpty("商品列表不显示，搜索结果为空")
+            if last_ready == "complete":
+                raise ComponentMissing("商品列表")
+            elapsed = time.monotonic() - started
+            raise NeedsManual(_product_list_timeout_text(keyword, elapsed, last_ready, facts))
+        time.sleep(0.25)
+
+
+def _product_list_timeout_text(keyword, elapsed, ready_state, facts):
+    """把商品列表等不到的原因说成能对上的一件事。"""
+    facts = facts or {}
+    href = str(facts.get("href") or "空")
+    path = str(facts.get("path") or "")
+    typed = str(facts.get("searchValue") or "")
+    wanted = str(keyword or "").strip()
+    count = int(facts.get("count") or 0)
+    head = (
+        f"搜索「{wanted}」后，等了 {elapsed:.1f} 秒，商品列表没有可用。"
+        f"页面 readyState={ready_state}。"
+    )
+    if "/imaging/manage" not in path:
+        return head + f"当前不在图片管理页，网址是 {href}。要先打开该主站的 /imaging/manage。"
+    if not facts.get("onImaging"):
+        return head + f"网址在图片管理，但没有图片管理页签。页面可能停在登录或弹窗。网址 {href}。"
+    if not facts.get("searchPresent"):
+        return head + "图片管理页上没有搜索框，关键词没有填进去。"
+    if typed != wanted:
+        shown = typed or "空"
+        return head + f"搜索框里现在是「{shown}」，不是要搜的「{wanted}」。回车没有把关键词交出去。"
+    if count == 0 and facts.get("empty"):
+        return head + "商品列表不显示，搜索结果为空。"
+    if count == 0:
+        return (
+            head
+            + f"搜索框已是「{typed}」，页面上没有商品列表，也没有空结果区域。"
+            + f"这次搜索没有渲染出商品列表。网址 {href}。"
+        )
+    hidden = str(facts.get("hidden") or "被藏起")
+    return (
+        head
+        + f"商品列表节点有 {count} 个，但不可见（{hidden}）。"
+        + f"列表已经在页面里，没有进入可视区域。网址 {href}。"
+    )
+
+
+def _product_list_facts_js(keyword=""):
+    """列表是否可见，以及是不是空结果。空结果看居中区域在不在，不看页面上的句子。"""
+    selector = json.dumps(PRODUCT_LIST_SELECTOR)
+    empty = json.dumps(EMPTY_RESULT_SELECTOR)
+    search = json.dumps(SEARCH_INPUT_SELECTOR)
+    bar = json.dumps('[data-testid="search-bar"]')
+    marker = json.dumps('[data-testid="image-manager-tab"]')
+    wanted = json.dumps(str(keyword or "").strip().upper())
+    return f"""(() => {{
+      const shown = (el) => {{
+        if (!el) return false;
+        const style = getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 8 && rect.height > 8;
+      }};
+      const nodes = [...document.querySelectorAll({selector})];
+      const input = document.querySelector({search});
+      const first = nodes[0];
+      const shells = [...document.querySelectorAll({empty})].filter(shown);
+      const bar = document.querySelector({bar});
+      const typed = input ? (input.value || '') : '';
+      const barText = ((bar && bar.innerText) || '').toUpperCase();
+      const wanted = {wanted};
+      let hidden = '';
+      if (first) {{
+        const style = getComputedStyle(first);
+        const rect = first.getBoundingClientRect();
+        hidden = 'display=' + style.display
+          + ' visibility=' + style.visibility
+          + ' 宽=' + Math.round(rect.width)
+          + ' 高=' + Math.round(rect.height);
+      }}
+      const present = nodes.length > 0;
+      const visible = !!(first && first.offsetParent !== null);
+      return {{
+        href: location.href,
+        path: location.pathname || '',
+        readyState: document.readyState,
+        count: nodes.length,
+        present,
+        visible,
+        hidden,
+        empty: shells.length > 0 && !visible,
+        submitted: !!wanted && (typed.toUpperCase() === wanted || barText.includes(wanted)),
+        searchValue: typed,
+        searchPresent: !!input,
+        onImaging: !!document.querySelector({marker})
+      }};
+    }})()"""
 
 
 def _wait_for_search(session, keyword, timeout):
@@ -148,7 +313,7 @@ def _wait_for_search(session, keyword, timeout):
 
 def _reveal_country(session, country, timeout):
     selector = _country_selector(country)
-    wait_for_element(session, selector, timeout=timeout)
+    wait_for_element(session, selector, timeout=timeout, component="国家模块")
     session.evaluate(_scroll_into_view_js(selector))
     _wait_until(
         session,
@@ -542,8 +707,9 @@ def _all_boxes_js(section_selector):
     }})()"""
 
 
-def _country_selector(country):
-    testid = COUNTRY_SECTION_TESTID.format(code=country_code(country))
+def _country_selector(section_code):
+    """section_code 已是模块名。英国传入 global。"""
+    testid = COUNTRY_SECTION_TESTID.format(code=section_code)
     return f'[data-testid="{testid}"]'
 
 
@@ -562,10 +728,23 @@ def _visible_js(selector):
 
 
 def _scroll_into_view_js(selector):
+    """把国家模块滚到可视区域。模块在内层滚动条里时，连那一层一起滚。"""
     return (
         "(() => { const el = document.querySelector("
         f"{json.dumps(selector)}); if (!el) return false;"
-        " el.scrollIntoView({block:'center'}); return true; })()"
+        " el.scrollIntoView({block:'center'});"
+        " let parent = el.parentElement;"
+        " while (parent) {"
+        " const style = getComputedStyle(parent);"
+        " const scrollable = /(auto|scroll)/.test(style.overflowY) && parent.scrollHeight > parent.clientHeight + 4;"
+        " if (scrollable) {"
+        " const top = el.getBoundingClientRect().top - parent.getBoundingClientRect().top + parent.scrollTop - parent.clientHeight / 2;"
+        " parent.scrollTop = top;"
+        " break;"
+        " }"
+        " parent = parent.parentElement;"
+        " }"
+        " return true; })()"
     )
 
 

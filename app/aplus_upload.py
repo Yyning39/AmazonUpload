@@ -27,7 +27,6 @@ NAME_LINK_SELECTOR = '.ag-cell[col-id="name"] kat-link'
 TYPE_CELL_SELECTOR = '.ag-cell[col-id="contentType"]'
 CONTENT_STATUS_CELL_SELECTOR = '.ag-cell[col-id="contentStatus"]'
 NEXT_PAGE_SELECTOR = '.ag-paging-button[ref="btNext"]'
-PAGE_SUMMARY_SELECTOR = ".ag-paging-description"
 CONTENT_TYPE_EBC = "EBC"
 # 翻完所有结果页仍没有可点进去提交的描述。这是跳过，不是失败。
 NO_UPLOADABLE_APLUS = "没有名称与 SKU 相同、内容类型为 EBC、内容状态为草稿的商品描述"
@@ -123,21 +122,77 @@ def _search_can_retry(exc):
     )
 
 
+def _grid_identity(state):
+    """列表有没有换过。用行数、分页数字和首行地址，不用整句页码。"""
+    state = state or {}
+    return (
+        state.get("recordCount"),
+        state.get("firstRow"),
+        state.get("lastRow"),
+        int(state.get("rowCount") or 0),
+        state.get("firstHref") or "",
+        bool(state.get("noRows")),
+    )
+
+
+def _grid_settled(state):
+    """加载层收起，并且能数到行、空表，或分页上的记录数。"""
+    state = state or {}
+    if not state.get("ok"):
+        return False
+    if state.get("readyState") not in {"interactive", "complete"}:
+        return False
+    if state.get("loading"):
+        return False
+    if int(state.get("rowCount") or 0) > 0:
+        return True
+    if state.get("noRows"):
+        return True
+    return state.get("recordCount") is not None
+
+
+def _grid_empty(state):
+    """没有数据行。记录数是分页节点里的数字，空表看无行层在不在。"""
+    if not _grid_settled(state):
+        return False
+    if int(state.get("rowCount") or 0) > 0:
+        return False
+    if state.get("recordCount") == 0:
+        return True
+    return bool(state.get("noRows"))
+
+
+def _search_wait_text(prefix, state, started):
+    state = state or {}
+    loading = "还在" if state.get("loading") else "已收起"
+    record = state.get("recordCount")
+    record_text = "没有" if record is None else str(record)
+    rows = int(state.get("rowCount") or 0)
+    ready = state.get("readyState") or "未知"
+    elapsed = time.monotonic() - started
+    return (
+        f"{prefix}：加载层{loading}，行数 {rows}，记录数 {record_text}，"
+        f"等了 {elapsed:.1f} 秒，readyState={ready}"
+    )
+
+
 def _open_search_match(session, sku_text, started, deadline, previous):
     _wait_for_search_results(session, started, deadline, previous)
     seen_pages = set()
     while True:
         state = _require_list(session, started, deadline)
-        page_text = state.get("pageText") or ""
+        if _grid_empty(state):
+            raise AplusNotFound(NO_UPLOADABLE_APLUS)
         rows = state.get("rows") or []
         if rows and all(not str(row.get("name") or "").strip() for row in rows):
             if time.monotonic() >= deadline:
                 raise NeedsManual("无法读取商品描述名称")
             time.sleep(0.25)
             continue
-        if page_text in seen_pages:
-            raise NeedsManual(f"翻页后页码没有变化：{page_text}")
-        seen_pages.add(page_text)
+        page_key = _grid_identity(state)
+        if page_key in seen_pages:
+            raise NeedsManual("翻页后列表没有变化")
+        seen_pages.add(page_key)
         if any(row.get("linked") and not row.get("name") for row in rows):
             raise NeedsManual("无法读取商品描述名称")
         matched = _first_match(rows, sku_text)
@@ -151,7 +206,7 @@ def _open_search_match(session, sku_text, started, deadline, previous):
             raise AplusNotFound(NO_UPLOADABLE_APLUS)
         if not session.evaluate(_click_next_page_js()):
             raise NeedsManual("无法点击下一页")
-        _wait_for_page_change(session, started, deadline, page_text)
+        _wait_for_page_change(session, started, deadline, page_key)
 
 
 def _wait_for_fields(session, timeout):
@@ -269,62 +324,54 @@ def _first_match(rows, sku):
 
 
 def _require_list(session, started, deadline):
-    """读当前这一页。超时说明等的是页码。"""
+    """读当前这一页。加载层收起并且行或记录数已经能数到，才算这一页好了。"""
     while True:
         state = session.evaluate(_list_rows_js()) or {}
-        ready = state.get("readyState") in {"interactive", "complete"}
-        if ready and state.get("ok") and state.get("pageText") and state.get("overlayHidden"):
-            return state
         if int(state.get("grids") or 0) > 1 or int(state.get("nextCount") or 0) > 1:
             raise NeedsManual("描述列表不止一套")
+        if _grid_settled(state):
+            return state
         if time.monotonic() >= deadline:
-            ready_state = state.get("readyState") or "未知"
-            raise NeedsManual(
-                f"等待描述列表超时：{PAGE_SUMMARY_SELECTOR}，等了 {time.monotonic() - started:.1f} 秒，readyState={ready_state}"
-            )
+            raise NeedsManual(_search_wait_text("等待描述列表超时", state, started))
         time.sleep(0.25)
 
 
 def _wait_for_search_results(session, started, deadline, previous):
-    """等到列表页码、首行链接或行数和点击搜索前不一样，并且加载层已收起。"""
-    previous = previous or {}
+    """搜索结束看加载层和行，不看页码句子。结果和点之前一样也收，避免空等。"""
+    previous_id = _grid_identity(previous)
+    saw_loading = False
+    stable = None
+    stable_since = None
     while True:
         state = session.evaluate(_list_stamp_js()) or {}
-        ready = state.get("readyState") in {"interactive", "complete"}
-        changed = (
-            state.get("pageText") != (previous.get("pageText") or "")
-            or state.get("firstHref") != (previous.get("firstHref") or "")
-            or state.get("rowCount") != previous.get("rowCount")
-        )
-        if ready and state.get("ok") and state.get("overlayHidden") and changed:
-            return
         if int(state.get("grids") or 0) > 1:
             raise NeedsManual("描述列表不止一套")
-        if time.monotonic() >= deadline:
-            ready_state = state.get("readyState") or "未知"
-            raise NeedsManual(
-                f"等待描述搜索结果超时：{PAGE_SUMMARY_SELECTOR}，等了 {time.monotonic() - started:.1f} 秒，readyState={ready_state}"
-            )
+        now = time.monotonic()
+        if state.get("loading"):
+            saw_loading = True
+            stable = None
+            stable_since = None
+        elif _grid_settled(state):
+            identity = _grid_identity(state)
+            if stable != identity:
+                stable = identity
+                stable_since = now
+            held = now - stable_since
+            changed = identity != previous_id
+            if (saw_loading and held >= 0.3) or (changed and held >= 0.3) or held >= 1.5:
+                return
+        if now >= deadline:
+            raise NeedsManual(_search_wait_text("等待描述搜索结果超时", state, started))
         time.sleep(0.25)
 
 
-def _wait_for_page_change(session, started, deadline, previous_page):
+def _wait_for_page_change(session, started, deadline, previous_key):
     while True:
         state = session.evaluate(_list_stamp_js()) or {}
-        ready = state.get("readyState") in {"interactive", "complete"}
-        if (
-            ready
-            and state.get("ok")
-            and state.get("overlayHidden")
-            and state.get("pageText")
-            and state.get("pageText") != previous_page
-        ):
+        if _grid_settled(state) and _grid_identity(state) != previous_key:
             return
         if time.monotonic() >= deadline:
-            ready_state = state.get("readyState") or "未知"
-            raise NeedsManual(
-                f"等待下一页超时：{NEXT_PAGE_SELECTOR}，等了 {time.monotonic() - started:.1f} 秒，readyState={ready_state}"
-            )
+            raise NeedsManual(_search_wait_text("等待下一页超时", state, started))
         time.sleep(0.25)
 
 
@@ -346,39 +393,32 @@ def _wait_for_detail(session, started, deadline, href):
         time.sleep(0.25)
 
 
+def _grid_root_js(host_expr):
+    """表格在 kat-data-grid 的明处或 shadowRoot 里。页码句子不参与。"""
+    mark = json.dumps(".ag-overlay, .ag-root, .ag-paging-panel, .ag-center-cols-container")
+    return f"""((host) => {{
+      if (!host) return null;
+      const mark = {mark};
+      if (host.querySelector(mark)) return host;
+      if (host.shadowRoot && host.shadowRoot.querySelector(mark)) return host.shadowRoot;
+      return null;
+    }})({host_expr})"""
+
+
 def _list_stamp_js():
-    summary = json.dumps(PAGE_SUMMARY_SELECTOR)
-    return f"""(() => {{
-      const grids = [...document.querySelectorAll({json.dumps(DATA_GRID_SELECTOR)})];
-      if (grids.length !== 1) return {{ok:false, grids: grids.length, readyState: document.readyState}};
-      const grid = grids[0];
-      const overlay = grid.querySelector('.ag-overlay');
-      const page = grid.querySelector({summary});
-      const row = grid.querySelector({json.dumps(RESULT_ROW_SELECTOR + ' ' + NAME_LINK_SELECTOR)});
-      return {{
-        ok: true,
-        grids: 1,
-        overlayHidden: !!(overlay && overlay.classList.contains('ag-hidden')),
-        pageText: page ? (page.innerText || '').replace(/\\s+/g, ' ').trim() : '',
-        firstHref: row ? (row.getAttribute('href') || '') : '',
-        rowCount: grid.querySelectorAll({json.dumps(RESULT_ROW_SELECTOR)}).length,
-        readyState: document.readyState
-      }};
-    }})()"""
+    return _grid_state_js(False)
 
 
 def _list_rows_js():
-    summary = json.dumps(PAGE_SUMMARY_SELECTOR)
+    return _grid_state_js(True)
+
+
+def _grid_state_js(include_rows):
     next_button = json.dumps(NEXT_PAGE_SELECTOR)
-    return f"""(() => {{
-      const grids = [...document.querySelectorAll({json.dumps(DATA_GRID_SELECTOR)})];
-      const readyState = document.readyState;
-      if (grids.length !== 1) return {{ok:false, grids: grids.length, readyState}};
-      const grid = grids[0];
-      const overlay = grid.querySelector('.ag-overlay');
-      const page = grid.querySelector({summary});
-      const buttons = [...grid.querySelectorAll({next_button})];
-      const rows = [...grid.querySelectorAll({json.dumps(RESULT_ROW_SELECTOR)})].map(row => {{
+    rows_js = ""
+    if include_rows:
+        rows_js = f"""
+      const rows = [...root.querySelectorAll({json.dumps(RESULT_ROW_SELECTOR)})].map(row => {{
         const link = row.querySelector({json.dumps(NAME_LINK_SELECTOR)});
         const typeCell = row.querySelector({json.dumps(TYPE_CELL_SELECTOR)});
         const statusCell = row.querySelector({json.dumps(CONTENT_STATUS_CELL_SELECTOR)});
@@ -392,14 +432,49 @@ def _list_rows_js():
           linked: !!link
         }};
       }});
+      const buttons = [...root.querySelectorAll({next_button})];
       const next = buttons.length === 1 ? buttons[0] : null;
+      const nextCount = buttons.length;
+      const nextEnabled = !!(next && !next.classList.contains('ag-disabled'));
+"""
+    else:
+        rows_js = """
+      const rows = [];
+      const nextCount = 0;
+      const nextEnabled = false;
+"""
+    return f"""(() => {{
+      const hosts = [...document.querySelectorAll({json.dumps(DATA_GRID_SELECTOR)})];
+      const readyState = document.readyState;
+      if (hosts.length !== 1) return {{ok:false, grids: hosts.length, readyState}};
+      const root = {_grid_root_js("hosts[0]")};
+      if (!root) return {{ok:false, grids: 1, readyState}};
+      const shown = (el) => {{
+        if (!el || el.classList.contains('ag-hidden')) return false;
+        const style = getComputedStyle(el);
+        return style.display !== 'none' && style.visibility !== 'hidden';
+      }};
+      const num = (el) => {{
+        if (!el) return null;
+        const text = (el.textContent || '').replace(/\\s+/g, '');
+        return /^\\d+$/.test(text) ? Number(text) : null;
+      }};
+      const loading = root.querySelector('.ag-overlay-loading-wrapper');
+      const noRows = root.querySelector('.ag-overlay-no-rows-wrapper');
+      const link = root.querySelector({json.dumps(RESULT_ROW_SELECTOR + ' ' + NAME_LINK_SELECTOR)});
+      {rows_js}
       return {{
         ok: true,
         grids: 1,
-        nextCount: buttons.length,
-        overlayHidden: !!(overlay && overlay.classList.contains('ag-hidden')),
-        pageText: page ? (page.innerText || '').replace(/\\s+/g, ' ').trim() : '',
-        nextEnabled: !!(next && !next.classList.contains('ag-disabled')),
+        loading: shown(loading),
+        noRows: shown(noRows),
+        recordCount: num(root.querySelector('[ref="lbRecordCount"]')),
+        firstRow: num(root.querySelector('[ref="lbFirstRowOnPage"]')),
+        lastRow: num(root.querySelector('[ref="lbLastRowOnPage"]')),
+        firstHref: link ? (link.getAttribute('href') || '') : '',
+        rowCount: root.querySelectorAll({json.dumps(RESULT_ROW_SELECTOR)}).length,
+        nextCount,
+        nextEnabled,
         rows,
         readyState
       }};
@@ -411,7 +486,9 @@ def _click_next_page_js():
     return f"""(() => {{
       const grids = [...document.querySelectorAll({json.dumps(DATA_GRID_SELECTOR)})];
       if (grids.length !== 1) return false;
-      const buttons = [...grids[0].querySelectorAll({button})];
+      const root = {_grid_root_js("grids[0]")};
+      if (!root) return false;
+      const buttons = [...root.querySelectorAll({button})];
       if (buttons.length !== 1) return false;
       if (buttons[0].classList.contains('ag-disabled')) return false;
       buttons[0].click();
@@ -425,7 +502,9 @@ def _click_name_link_js(href):
     return f"""(() => {{
       const grids = [...document.querySelectorAll({json.dumps(DATA_GRID_SELECTOR)})];
       if (grids.length !== 1) return false;
-      const links = [...grids[0].querySelectorAll({json.dumps(NAME_LINK_SELECTOR)})].filter(link => {{
+      const root = {_grid_root_js("grids[0]")};
+      if (!root) return false;
+      const links = [...root.querySelectorAll({json.dumps(NAME_LINK_SELECTOR)})].filter(link => {{
         return (link.getAttribute('href') || '') === {target};
       }});
       if (links.length !== 1) return false;

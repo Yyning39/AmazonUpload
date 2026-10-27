@@ -10,12 +10,12 @@ from app.aplus_upload import (
     submit_for_approval,
 )
 from app.browser import (
-    SITE_OPTIONS,
     BrowserConnectionError,
     PageNavigationError,
     close_browser,
     connect_country,
     country_code,
+    cross_site_code,
     return_to_imaging_manage,
     switch_site,
     switch_to_description_page,
@@ -255,23 +255,12 @@ def _download_images(config, database_path, picture_root, task, writer=None, on_
     sku = str(task.get("sku") or "").strip()
     asin = str(task.get("asin") or "").strip()
     main_country = country_code(task.get("main_country"))
-    cross_country = country_code(task.get("cross_country"))
-    if cross_country not in SITE_OPTIONS:
-        _release_heartbeat(task)
-        record_enqueue_rejection(
-            config,
-            database_path,
-            task,
-            "COUNTRY_INVALID",
-            f"当前展开的账户列表里没有 {cross_country} 的站点选项",
-            writer=writer,
-        )
-        _stage(on_progress, config, task, f"国家无效：当前展开的账户列表里没有 {cross_country}", done=1, total=1)
-        return None
+    cross_country = cross_site_code(task.get("cross_country"))
     sources = task.get("_addresses")
     if sources is None:
         sources = image_src_list(task.get("images"))
-    log_business(logger, task, "site_images", "下载 " + str(len(sources)) + " 张 " + " ".join(sources))
+    filled = [item for item in sources if str(item or "").strip()]
+    log_business(logger, task, "site_images", "下载 " + str(len(filled)) + " 张 " + " ".join(filled))
     try:
         folder = picture_directory(picture_root, main_country, sku or asin, cross_country)
         if task.get("_addresses") is None:
@@ -286,7 +275,7 @@ def _download_images(config, database_path, picture_root, task, writer=None, on_
         else:
             _fail(config, database_path, task, exc.code, str(exc), "site_images", writer, on_progress)
         return None
-    _stage(on_progress, config, task, f"下载完成 {len(sources)} 张")
+    _stage(on_progress, config, task, f"下载完成 {len(filled)} 张")
     return folder
 
 
@@ -294,23 +283,11 @@ def _countries(config, database_path, task, writer=None, on_progress=None):
     """图片已成功、只重跑 A+ 时才走到这里。国家仍须能识别。"""
     try:
         main_country = country_code(task.get("main_country"))
-        cross_country = country_code(task.get("cross_country"))
+        cross_country = cross_site_code(task.get("cross_country"))
     except ValueError as exc:
         _release_heartbeat(task)
         record_enqueue_rejection(config, database_path, task, "COUNTRY_INVALID", str(exc), writer=writer)
         _stage(on_progress, config, task, "国家无效：" + str(exc), done=1, total=1)
-        return "", ""
-    if cross_country not in SITE_OPTIONS:
-        _release_heartbeat(task)
-        record_enqueue_rejection(
-            config,
-            database_path,
-            task,
-            "COUNTRY_INVALID",
-            f"当前展开的账户列表里没有 {cross_country} 的站点选项",
-            writer=writer,
-        )
-        _stage(on_progress, config, task, f"国家无效：当前展开的账户列表里没有 {cross_country}", done=1, total=1)
         return "", ""
     return main_country, cross_country
 

@@ -55,13 +55,7 @@ def source_note(config):
         if isinstance(cl_db, dict):
             database = str(cl_db.get("database") or "").strip()
     current = label + ((" " + database) if database else "")
-    if label == "测试库":
-        other = "正式库未连接，本进程不领取。"
-    elif label == "正式库":
-        other = "测试库未连接，本进程不领取。"
-    else:
-        other = ""
-    return f"当前连接：{current}。Excel 与该库的任务写在这里。{other}"
+    return f"当前连接：{current}。Excel 与该库的任务写在这里。"
 
 
 def describe(config, task, text):

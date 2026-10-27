@@ -2,7 +2,7 @@
 
 import logging
 
-from app.browser import SITE_OPTIONS, close_browser, connect_country, country_code, switch_site
+from app.browser import close_browser, connect_country, country_code, cross_site_code, switch_site
 from app.queue_store import close_store, mark_task_retry, open_store, take_pending_task
 
 logger = logging.getLogger(__name__)
@@ -44,9 +44,7 @@ def switch_one_pending(database_path, timeout=30):
 
 def _switch(task, timeout):
     main_country = country_code(task.get("main_country"))
-    cross_country = country_code(task.get("cross_country"))
-    if cross_country not in SITE_OPTIONS:
-        raise ValueError(f"当前展开的账户列表里没有 {cross_country} 的站点选项")
+    cross_country = cross_site_code(task.get("cross_country"))
     session = connect_country(main_country, timeout=timeout)
     try:
         switch_site(session, cross_country, timeout=timeout)

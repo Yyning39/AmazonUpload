@@ -8,7 +8,7 @@ from urllib.error import URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from app.browser import country_code
+from app.browser import country_code, cross_site_code
 
 # 与 plan.md 第 6 节、图片上传允许的扩展名相同。
 IMAGE_EXTENSIONS = {".gif", ".pjp", ".jfif", ".jpe", ".pjpeg", ".jpeg", ".jpg", ".png"}
@@ -21,7 +21,6 @@ _CONTENT_TYPES = {
     "image/png": ".png",
     "image/pjpeg": ".pjpeg",
 }
-_SPLIT = re.compile(r"[\r\n;；|]+")
 
 
 def picture_directory(picture_root, country, sku, site):
@@ -29,7 +28,7 @@ def picture_directory(picture_root, country, sku, site):
     sku_text = str(sku or "").strip()
     if not sku_text:
         raise ValueError("sku 为空，无法保存图片")
-    return Path(picture_root) / country_code(country) / sku_text / country_code(site)
+    return Path(picture_root) / country_code(country) / sku_text / cross_site_code(site)
 
 
 class PictureSourceError(ValueError):
@@ -51,7 +50,7 @@ def image_src_list(images_text):
     """从 task.images 取出每张图的 src。
 
     设计文档的示例是 JSON 数组，每一项本身就是完整网址，这一项就是 src。
-    下标 0 对应 MAIN，1 对应 PT01。
+    下标 0 对应 MAIN，1 对应 PT01。空项留在原下标，不下载，后面的图不前移。
     """
     if isinstance(images_text, list):
         data = images_text
@@ -71,10 +70,13 @@ def image_src_list(images_text):
     for index, value in enumerate(data):
         item = _image_src_item(value)
         if not item:
-            raise PictureSourceError("IMG_ITEM_EMPTY", f"IMAGES[{index}] 为空")
+            addresses.append("")
+            continue
         if not item.lower().startswith(("http://", "https://")):
             raise PictureSourceError("IMG_URL_INVALID", f"IMAGES[{index}] 不是 http(s) 地址")
         addresses.append(item)
+    if not any(addresses):
+        raise PictureSourceError("IMG_EMPTY", "IMAGES 为空")
     return addresses
 
 
@@ -114,20 +116,16 @@ def save_address_pictures(folder, addresses):
     temporary = []
     try:
         for index, address in enumerate(addresses):
+            if not str(address or "").strip():
+                continue
             stem = task_file_stem(index)
             suffix, part = _store_address(address, folder, stem, index)
             if part.stat().st_size <= 0:
                 raise PictureSourceError("IMG_DOWNLOAD_FAILED", f"第 {index} 张图片是空文件")
             temporary.append((part, folder / f"{stem}{suffix}"))
-        keep = {final.name for _, final in temporary}
-        for old in _numbered_files(folder):
-            if old.name not in keep:
-                old.unlink()
-        saved = []
-        for part, final in temporary:
-            part.replace(final)
-            saved.append(final)
-        return saved
+        if not temporary:
+            raise PictureSourceError("IMG_EMPTY", "IMAGES 为空")
+        return _replace_numbered(folder, temporary)
     finally:
         for part, _final in temporary:
             if part.exists():
@@ -169,20 +167,16 @@ def save_task_pictures(folder, images_text):
     temporary = []
     try:
         for index, address in enumerate(addresses):
+            if not str(address or "").strip():
+                continue
             stem = task_file_stem(index)
             suffix, part = _download_task_image(address, folder, stem, index)
             if part.stat().st_size <= 0:
                 raise PictureSourceError("IMG_DOWNLOAD_FAILED", f"第 {index} 张图片是空文件")
             temporary.append((part, folder / f"{stem}{suffix}"))
-        keep = {final.name for _, final in temporary}
-        for old in _numbered_files(folder):
-            if old.name not in keep:
-                old.unlink()
-        saved = []
-        for part, final in temporary:
-            part.replace(final)
-            saved.append(final)
-        return saved
+        if not temporary:
+            raise PictureSourceError("IMG_EMPTY", "IMAGES 为空")
+        return _replace_numbered(folder, temporary)
     finally:
         for part, _final in temporary:
             if part.exists():
@@ -203,27 +197,36 @@ def save_numbered_pictures(folder, src):
     temporary = []
     try:
         for index, address in enumerate(addresses, 1):
+            if not str(address or "").strip():
+                continue
             suffix, part = _fetch(address, folder, index)
             if part.stat().st_size <= 0:
                 raise ValueError(f"第 {index} 张图片是空文件：{address}")
             temporary.append((part, folder / f"{index:02d}{suffix}"))
-        keep = {final.name for _, final in temporary}
-        for old in _numbered_files(folder):
-            if old.name not in keep:
-                old.unlink()
-        saved = []
-        for part, final in temporary:
-            part.replace(final)
-            saved.append(final)
-        return saved
+        if not temporary:
+            raise ValueError("src 没有图片")
+        return _replace_numbered(folder, temporary)
     finally:
         for part, _final in temporary:
             if part.exists():
                 part.unlink()
 
 
+def _replace_numbered(folder, temporary):
+    """用这次存下的数字图片替换旧文件。空位没有新文件，旧的同序号文件删掉。"""
+    keep = {final.name for _, final in temporary}
+    for old in _numbered_files(folder):
+        if old.name not in keep:
+            old.unlink()
+    saved = []
+    for part, final in temporary:
+        part.replace(final)
+        saved.append(final)
+    return saved
+
+
 def split_src(src):
-    """把单元格拆成按顺序的图片项。`[1,2,3]` 得到 1、2、3。"""
+    """把单元格拆成按顺序的图片项。空项留在原位置，不删掉后重排。"""
     text = str(src or "").strip()
     if not text:
         return []
@@ -233,13 +236,15 @@ def split_src(src):
         except json.JSONDecodeError:
             data = None
         if isinstance(data, list):
-            return [item for item in (_item_text(value) for value in data) if item]
-        inner = text[1:-1].strip()
-        return [item.strip().strip("\"'") for item in inner.split(",") if item.strip()]
-    parts = [item.strip() for item in _SPLIT.split(text) if item.strip()]
-    if len(parts) == 1 and "," in parts[0]:
-        parts = [item.strip() for item in parts[0].split(",") if item.strip()]
-    return parts
+            return [_item_text(value) for value in data]
+        inner = text[1:-1]
+        return [item.strip().strip("\"'") for item in inner.split(",")]
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    if any(mark in normalized for mark in ("\n", ";", "；", "|")):
+        return [item.strip() for item in re.split(r"[\n;；|]", normalized)]
+    if "," in normalized:
+        return [item.strip() for item in normalized.split(",")]
+    return [normalized]
 
 
 def _item_text(value):

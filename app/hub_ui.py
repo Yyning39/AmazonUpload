@@ -478,14 +478,16 @@ def _short_clock(text):
 
 def _pill_colors(value):
     text = "" if value is None else str(value)
-    if text in {"成功", "完成", "已提交", "已登录"}:
+    if text in {"成功", "完成", "已提交", "已登录", "Confirm"}:
         return "#047857", "#ECFDF5"
     if text == "跳过":
         return "#B45309", "#FFFBEB"
-    if text in {"失败", "需核对", "未登录"}:
+    if text in {"失败", "需核对", "未登录", "Error"}:
         return "#B91C1C", "#FEF2F2"
-    if text in {"检查中", "正在启动", "正在打开"}:
+    if text in {"检查中", "正在启动", "正在打开", "Process"}:
         return "#374151", "#F3F4F6"
+    if text == "New":
+        return "#1D4ED8", "#EFF6FF"
     return "#6B7280", "#F5F5F5"
 
 

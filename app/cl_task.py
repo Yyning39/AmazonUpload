@@ -300,14 +300,60 @@ def _report_claim(config, row, guid, text):
     }, text))
 
 
+def list_new_tasks(config):
+    """只读当前所有 New，给展示页用。不改 TASK_STATUS，不写入本机队列。
+
+    五国线程仍各自领取一条。两边可以读到同一行，领取靠更新行数必须是 1，展示页不参与。
+    """
+    return list_followed_tasks(config, ())
+
+
+def list_followed_tasks(config, guids):
+    """只读当前 New，以及展示页已经在看的那些行的最新状态和错误。不改状态，不领取。"""
+    database = _require_db(config)
+    table = _identifier(database.get("table"), "cl_db.table")
+    connection = _connect(database)
+    try:
+        columns = _table_columns(connection, table)
+        missing = [name for name in READ_COLUMNS if name not in columns]
+        if missing:
+            raise RuntimeError("CL 表缺少列：" + "、".join(missing))
+        selected = [name for name in READ_COLUMNS if name in columns]
+        selected.extend(name for name in OPTIONAL_COLUMNS if name in columns)
+        selected.extend(
+            name
+            for name in ("CREATION_DATE", "ERROR_CODE", "ERROR_MESSAGE")
+            if name in columns and name not in selected
+        )
+        followed = []
+        seen = set()
+        for item in guids or []:
+            text = str(item or "").strip()
+            if text and text not in seen:
+                seen.add(text)
+                followed.append(text)
+        return _fetch_followed(connection, table, selected, followed)
+    finally:
+        connection.close()
+
+
 def _fetch_new(connection, table, columns):
+    return _fetch_followed(connection, table, columns, ())
+
+
+def _fetch_followed(connection, table, columns, guids):
     sql = (
         "SELECT " + ", ".join(columns)
         + " FROM " + table
-        + " WHERE TASK_STATUS = %s ORDER BY CREATION_DATE"
+        + " WHERE TASK_STATUS = %s"
     )
+    params = ["New"]
+    if guids:
+        sql += " OR AMZ_CROSS_TASK_GUID IN (" + ", ".join(["%s"] * len(guids)) + ")"
+        params.extend(guids)
+    sql += " ORDER BY CREATION_DATE"
     with connection.cursor() as cursor:
-        cursor.execute(sql, ("New",))
+        cursor.execute(sql, params)
         return list(cursor.fetchall())
 
 
