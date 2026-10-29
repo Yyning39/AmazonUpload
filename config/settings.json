@@ -1,0 +1,39 @@
+{
+  "data_dir": "",
+  "database_file": "data/queue.sqlite3",
+  "prepared_dir": "",
+  "log_dir": "logs",
+  "log_level": "INFO",
+  "source_excel": "",
+  "cl_db": {
+    "table": "ca_pid_amz_cross_site_task_all",
+    "database": "cadev",
+    "poll_interval_seconds": 30,
+    "stale_processing_seconds": 1800,
+    "connect_timeout_seconds": 10
+  },
+  "max_attempts": 3,
+  "browser": {
+    "host": "127.0.0.1",
+    "startup_country": "ES",
+    "reuse_port": 9230,
+    "country_ports": {
+      "US": 9222,
+      "CA": 9223,
+      "UK": 9224,
+      "DE": 9225,
+      "FR": 9226,
+      "IT": 9227,
+      "ES": 9228
+    },
+    "home_urls": {
+      "US": "https://sellercentral.amazon.com",
+      "CA": "https://sellercentral.amazon.ca",
+      "UK": "https://sellercentral.amazon.co.uk",
+      "DE": "https://sellercentral.amazon.de",
+      "FR": "https://sellercentral.amazon.fr",
+      "IT": "https://sellercentral.amazon.it",
+      "ES": "https://sellercentral.amazon.es"
+    }
+  }
+}
